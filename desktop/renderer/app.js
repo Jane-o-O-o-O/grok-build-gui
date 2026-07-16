@@ -33,6 +33,89 @@
   let pickerPopover = null;
   let providerDiscovery = null;
   let savedProviders = [];
+  let nativeConfig = { values: {}, raw: "", path: "~/.grok/config.toml", integrations: {} };
+  let authState = { signedIn: false, name: "登录 Grok" };
+  let runtimeState = { connected: false, version: null, binary: null };
+
+  const nativeSettingGroups = [
+    { target: "nativeGeneralSettings", title: "原生会话", items: [
+      ["auto_update", "自动更新", "启动时检查并安装 Grok Runtime 更新", "bool"],
+      ["show_tips", "启动提示", "启动原生 TUI 时显示使用提示", "bool"],
+      ["auto_compact", "自动压缩阈值", "上下文达到该百分比后自动压缩", "number", { suffix: "%" }],
+      ["load_envrc", "加载 .envrc", "创建会话时读取工作区环境变量", "bool"],
+      ["remote_fetch", "远程目录", "允许在线获取模型目录等可选信息", "bool"]
+    ]},
+    { target: "nativeModelSettings", title: "模型路由", items: [
+      ["default_model", "默认模型", "新会话使用的原生模型", "model"],
+      ["web_search_model", "网页搜索模型", "Web Search 工具使用的模型", "model"]
+    ]},
+    { target: "nativeAppearanceSettings", title: "主题与布局", items: [
+      ["theme", "TUI 主题", "原生终端界面的颜色主题", "select", { auto: "跟随系统", groknight: "Grok Night", grokday: "Grok Day", tokyonight: "Tokyo Night", "rosepine-moon": "Rose Pine Moon", "oscura-midnight": "Oscura Midnight" }],
+      ["auto_dark_theme", "系统深色主题", "TUI 跟随系统时使用的深色主题", "select", { groknight: "Grok Night", grokday: "Grok Day", tokyonight: "Tokyo Night", "rosepine-moon": "Rose Pine Moon", "oscura-midnight": "Oscura Midnight" }],
+      ["auto_light_theme", "系统浅色主题", "TUI 跟随系统时使用的浅色主题", "select", { groknight: "Grok Night", grokday: "Grok Day", tokyonight: "Tokyo Night", "rosepine-moon": "Rose Pine Moon", "oscura-midnight": "Oscura Midnight" }],
+      ["compact_mode", "紧凑模式", "减少消息区域内外边距", "bool"],
+      ["screen_mode", "屏幕模式", "原生 TUI 默认使用全屏或最小模式", "select", { fullscreen: "全屏", minimal: "最小" }],
+      ["show_timestamps", "显示时间戳", "在用户与 Agent 消息旁显示时间", "bool"],
+      ["show_thinking_blocks", "显示思考块", "流式展示 Agent 的思考和推理内容", "bool"],
+      ["group_tool_verbs", "合并工具调用", "折叠连续读取、搜索、列表与子 Agent 行", "bool"],
+      ["collapsed_edit_blocks", "折叠编辑块", "用单行 +N/-M 摘要展示文件修改", "bool"],
+      ["max_thoughts_width", "思考块最大宽度", "思考面板的列宽预算，范围 40–500", "number"],
+      ["render_mermaid", "Mermaid 图表", "控制 Mermaid 代码块的渲染入口", "select", { auto: "自动", on: "开启", off: "关闭" }],
+      ["display_refresh_auto_cadence", "匹配显示器刷新率", "在高刷新率显示器上提高 TUI 流式和滚动帧率", "bool"]
+    ]},
+    { target: "nativeInputSettings", title: "编辑与输入", items: [
+      ["simple_mode", "Readline 输入", "使用普通输入而不是实验性 Vim 提示编辑", "bool"],
+      ["vim_mode", "Vim 滚动导航", "使用 h/j/k/l 等按键导航对话历史", "bool"],
+      ["prompt_suggestions", "提示词建议", "每轮后预测下一条输入并以幽灵文字显示", "bool"],
+      ["voice_capture_mode", "语音触发方式", "控制语音快捷键是按住说话还是切换录音", "select", { hold: "按住说话", toggle: "切换录音" }],
+      ["voice_stt_language", "语音识别语言", "Grok STT 的格式化与识别语言", "select", { en: "English", auto: "跟随系统", ar: "العربية", cs: "Čeština", da: "Dansk", nl: "Nederlands", fil: "Filipino", fr: "Français", de: "Deutsch", hi: "हिन्दी", id: "Bahasa Indonesia", it: "Italiano", ja: "日本語", ko: "한국어", mk: "Македонски", ms: "Bahasa Melayu", fa: "فارسی", pl: "Polski", pt: "Português", ro: "Română", ru: "Русский", es: "Español", sv: "Svenska", th: "ไทย", tr: "Türkçe", vi: "Tiếng Việt" }],
+      ["scroll_speed", "滚动速度", "鼠标滚轮和触控板速度，范围 1–100", "number"],
+      ["scroll_mode", "滚动输入", "自动检测或固定为滚轮/触控板", "select", { auto: "自动检测", wheel: "鼠标滚轮", trackpad: "触控板" }],
+      ["scroll_lines", "每次滚动行数", "每个滚动事件移动的行数，范围 1–10", "number"],
+      ["invert_scroll", "反向滚动", "使用自然滚动方向", "bool"],
+      ["keep_text_selection", "文本选择", "控制选择高亮和双击行为", "select", { flash: "短暂高亮", hold: "保持高亮", word_select: "双击选词" }],
+      ["hint_undo", "撤销提示", "清空输入后提示 Ctrl+Z 恢复草稿", "bool"],
+      ["hint_plan_mode", "计划模式提示", "规划类请求时提示使用 Shift+Tab", "bool"],
+      ["hint_image_input", "图片输入提示", "剪贴板存在图片时提示粘贴", "bool"],
+      ["hint_send_now", "立即发送提示", "排队跟进内容后提示立即发送方式", "bool"],
+      ["hint_small_screen", "小屏幕提示", "终端空间较小时提示紧凑模式", "bool"],
+      ["hint_word_select", "单词选择提示", "双击文本后提示终端式选词设置", "bool"]
+    ]},
+    { target: "nativeAgentSettings", title: "执行策略", items: [
+      ["permission_mode", "权限模式", "设置工具操作的默认审批行为", "select", { default: "使用默认", ask: "每次询问", auto: "智能审批", "always-approve": "始终批准" }],
+      ["remember_tool_approvals", "记住工具审批", "在权限提示中提供始终允许此命令选项", "bool"],
+      ["default_selected_permission", "默认选中的权限", "首次权限提示默认聚焦的选项", "select", { always_allow_all_sessions: "所有会话始终允许", allow_command_always: "始终允许此命令", allow_once: "仅允许一次", reject: "拒绝" }],
+      ["ask_question_timeout", "问题等待超时", "用户问题工具在等待过久后结束", "bool"],
+      ["subagents_enabled", "启用子 Agent", "允许 Grok 创建并行或专用子任务", "bool"],
+      ["two_pass_compaction", "两阶段压缩", "使用预取式的两阶段上下文压缩", "bool"],
+      ["fork_secondary_model", "分叉辅助模型", "Fork 时第二个 Agent 使用的模型", "model"],
+      ["cancel_subagents", "取消主任务时的子 Agent", "选择同时停止、继续运行或每次询问", "select", { ask: "每次询问", always_stop: "始终停止", always_continue: "始终继续" }]
+    ]},
+    { target: "nativeToolSettings", title: "本地工具", items: [
+      ["respect_gitignore", "遵循 .gitignore", "文件工具跳过 Git 忽略的文件", "bool"],
+      ["bash_timeout", "Shell 超时", "前台命令最长运行秒数", "number", { suffix: "秒" }],
+      ["bash_output_limit", "Shell 输出上限", "单次命令保留的最大输出字节数", "number", { suffix: "bytes" }],
+      ["lsp_tools", "LSP 工具", "向 Agent 暴露语言服务器工具", "bool"],
+      ["codebase_indexing", "代码库索引", "启用代码图和代码库索引能力", "bool"]
+    ]},
+    { target: "nativeMemorySettings", title: "跨会话记忆", items: [
+      ["memory_enabled", "启用记忆", "在不同任务之间检索并复用项目知识", "bool"],
+      ["memory_save_on_end", "结束时保存", "会话结束时保存元数据摘要", "bool"],
+      ["memory_watcher", "监听记忆文件", "外部修改记忆文件时自动重新加载", "bool"],
+      ["memory_max_results", "最大检索数量", "每次记忆搜索返回的结果数量", "number"],
+      ["memory_min_score", "最低相关度", "记忆搜索结果的最低分数，范围 0–1", "number", { step: 0.05 }],
+      ["memory_initial_injection", "首次注入记忆", "第一轮自动检索并注入相关记忆", "bool"]
+    ]},
+    { target: "nativeGitSettings", title: "工作区策略", items: [
+      ["new_worktree_mode", "新会话 Worktree", "新建会话时是否询问或自动创建 Worktree", "select", { ask: "每次询问", always: "始终创建", never: "从不创建" }],
+      ["fork_worktree_mode", "分叉 Worktree", "Fork 会话时是否创建独立 Worktree", "select", { ask: "每次询问", always: "始终创建", never: "从不创建" }],
+      ["hunk_tracker_mode", "变更块跟踪", "选择 Agent 需要跟踪的文件变更范围", "select", { agent_only: "仅 Agent 修改", all_dirty: "所有未提交修改", off: "关闭" }]
+    ]},
+    { target: "nativePrivacySettings", title: "本地与诊断数据", items: [
+      ["telemetry", "匿名遥测", "向配置的遥测后端发送匿名使用数据", "bool"],
+      ["feedback", "反馈功能", "启用原生 TUI 的反馈入口", "bool"]
+    ]}
+  ];
 
   const dockTypes = {
     review: { title: "审阅", icon: "i-review", description: "查看 Git 工作区改动" },
@@ -509,7 +592,14 @@
     state.attachments.push(...files.filter((file) => !state.attachments.includes(file))); renderAttachments();
   }
 
-  function toggleApproval() { state.alwaysApprove = !state.alwaysApprove; saveState(); updateSwitches(); }
+  async function toggleApproval() {
+    state.alwaysApprove = !state.alwaysApprove; saveState(); updateSwitches();
+    if (api) {
+      const result = await api.setNativeSetting("permission_mode", state.alwaysApprove ? "always-approve" : "ask");
+      if (!result.ok) { state.alwaysApprove = !state.alwaysApprove; saveState(); updateSwitches(); toast("权限设置保存失败", result.error); }
+      else { nativeConfig.values.permission_mode = result.value; nativeConfig.raw = result.raw; $("#rawConfigEditor").value = result.raw || ""; }
+    }
+  }
   function openPalette() {
     const backdrop = $("#paletteBackdrop"); backdrop.hidden = false; $("#paletteInput").value = ""; renderPalette(""); setTimeout(() => $("#paletteInput").focus(), 0);
   }
@@ -525,8 +615,148 @@
     $("#paletteResults").innerHTML = `<div class="palette-group">快速操作</div>${matches.map((item, index) => `<button class="palette-item ${index === 0 ? "is-selected" : ""}" data-palette="${index}"><svg><use href="#${item.icon}"/></svg><span>${escapeHtml(item.title)}</span><small>${escapeHtml(item.meta)}</small></button>`).join("") || '<div class="context-empty">没有匹配项</div>'}`;
     $$('[data-palette]').forEach((button) => button.addEventListener("click", () => { matches[Number(button.dataset.palette)].run(); closePalette(); }));
   }
-  function openSettings() { $("#settingsBackdrop").hidden = false; loadSavedProviders(); }
-  function closeSettings() { $("#settingsBackdrop").hidden = true; }
+  const settingTargetPages = {
+    nativeGeneralSettings: "general", nativeModelSettings: "models", nativeAppearanceSettings: "appearance",
+    nativeInputSettings: "input", nativeAgentSettings: "agent", nativeToolSettings: "tools",
+    nativeMemorySettings: "memory", nativeGitSettings: "git", nativePrivacySettings: "privacy"
+  };
+
+  function modelSettingOptions(current) {
+    const values = [{ id: "", label: "使用 Runtime 默认值" }, ...runtimeModels.filter((item) => item.id !== "auto")];
+    if (current && !values.some((item) => item.id === current)) values.push({ id: current, label: current });
+    return values;
+  }
+
+  function settingControl(item) {
+    const [id, , , type, choices = {}] = item;
+    const value = nativeConfig.values?.[id];
+    if (type === "bool") return `<div class="native-setting-control"><button class="switch" data-native-setting="${id}" role="switch" aria-checked="${Boolean(value)}"><i></i></button><svg class="setting-saved"><use href="#i-check"/></svg></div>`;
+    if (type === "model") {
+      return `<div class="native-setting-control"><select data-native-setting="${id}">${modelSettingOptions(value).map((option) => `<option value="${escapeHtml(option.id)}" ${option.id === value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select><svg class="setting-saved"><use href="#i-check"/></svg></div>`;
+    }
+    if (type === "select") return `<div class="native-setting-control"><select data-native-setting="${id}">${Object.entries(choices).map(([optionValue, label]) => `<option value="${escapeHtml(optionValue)}" ${optionValue === value ? "selected" : ""}>${escapeHtml(label)}</option>`).join("")}</select><svg class="setting-saved"><use href="#i-check"/></svg></div>`;
+    const step = choices.step || 1;
+    return `<div class="native-setting-control"><input type="number" step="${step}" value="${Number(value ?? 0)}" data-native-setting="${id}"/>${choices.suffix ? `<small>${escapeHtml(choices.suffix)}</small>` : ""}<svg class="setting-saved"><use href="#i-check"/></svg></div>`;
+  }
+
+  function renderNativeSettings() {
+    for (const group of nativeSettingGroups) {
+      const target = $(`#${group.target}`);
+      if (!target) continue;
+      target.innerHTML = `<div class="native-settings-group"><h4>${escapeHtml(group.title)}</h4><div class="settings-card">${group.items.map((item) => `<div class="settings-row" data-setting-row="${item[0]}" data-search-text="${escapeHtml(`${item[1]} ${item[2]} ${item[0]}`.toLowerCase())}"><span><b>${escapeHtml(item[1])}</b><small>${escapeHtml(item[2])}</small></span>${settingControl(item)}</div>`).join("")}</div></div>`;
+    }
+    $$('[data-native-setting]').forEach((control) => {
+      if (control.matches("button")) control.addEventListener("click", () => applyNativeSetting(control.dataset.nativeSetting, control.getAttribute("aria-checked") !== "true", control));
+      else control.addEventListener("change", () => applyNativeSetting(control.dataset.nativeSetting, control.type === "number" ? Number(control.value) : control.value, control));
+    });
+  }
+
+  async function applyNativeSetting(id, value, control) {
+    control.disabled = true;
+    const result = api ? await api.setNativeSetting(id, value) : { ok: true, value };
+    control.disabled = false;
+    if (!result.ok) { toast("设置保存失败", result.error); return; }
+    nativeConfig.values[id] = result.value;
+    if (result.raw != null) { nativeConfig.raw = result.raw; $("#rawConfigEditor").value = result.raw; }
+    if (control.matches("button")) control.setAttribute("aria-checked", String(Boolean(result.value)));
+    control.closest(".native-setting-control")?.classList.add("is-saved");
+    setTimeout(() => control.closest(".native-setting-control")?.classList.remove("is-saved"), 1200);
+    if (id === "permission_mode") { state.alwaysApprove = result.value === "always-approve"; saveState(); updateSwitches(); }
+    $("#settingsConfigStatus").textContent = `已写入 ${nativeConfig.path}`;
+  }
+
+  function renderIntegrationSummary() {
+    const counts = nativeConfig.integrations || {};
+    const items = [
+      ["i-command", "MCP Servers", counts.mcp || 0], ["i-tasks", "Plugins", counts.plugins || 0],
+      ["i-file", "Skills", counts.skills || 0], ["i-terminal", "Hooks", counts.hooks || 0],
+      ["i-user", "Agents", counts.agents || 0], ["i-command", "Custom Models", counts.models || 0]
+    ];
+    $("#integrationGrid").innerHTML = items.map(([icon, label, count]) => `<article class="integration-card"><svg><use href="#${icon}"/></svg><b>${label}</b><small>${count} 个已发现项目</small></article>`).join("");
+  }
+
+  async function loadNativeConfig() {
+    if (api) nativeConfig = await api.readNativeConfig();
+    $("#nativeConfigPath").textContent = nativeConfig.path;
+    $("#rawConfigEditor").value = nativeConfig.raw || "";
+    $("#settingsConfigStatus").textContent = `直接读写 ${nativeConfig.path} · ${Object.keys(nativeConfig.values || {}).length} 项原生设置`;
+    state.alwaysApprove = nativeConfig.values?.permission_mode === "always-approve";
+    saveState(); updateSwitches(); renderNativeSettings(); renderIntegrationSummary();
+  }
+
+  function showSettingsPage(page = "general") {
+    $$('[data-settings-page]').forEach((button) => button.classList.toggle("is-active", button.dataset.settingsPage === page));
+    $$('[data-settings-panel]').forEach((panel) => { panel.hidden = panel.dataset.settingsPanel !== page; });
+    $("#settingsContent").scrollTop = 0;
+  }
+
+  function renderSettingsSearch(query) {
+    const value = query.trim().toLowerCase();
+    let results = $("#settingsSearchResults");
+    if (!value) { results?.remove(); showSettingsPage($('[data-settings-page].is-active')?.dataset.settingsPage || "general"); return; }
+    const matches = nativeSettingGroups.flatMap((group) => group.items.map((item) => ({ group, item }))).filter(({ item }) => `${item[0]} ${item[1]} ${item[2]}`.toLowerCase().includes(value));
+    if (!results) {
+      results = document.createElement("section"); results.id = "settingsSearchResults"; results.className = "settings-panel"; $("#settingsContent").prepend(results);
+    }
+    $$('[data-settings-panel]').forEach((panel) => { panel.hidden = true; });
+    $$('[data-settings-page]').forEach((button) => button.classList.remove("is-active"));
+    results.hidden = false;
+    results.innerHTML = `<div class="settings-panel__heading"><h3>搜索设置</h3><p>找到 ${matches.length} 个匹配项</p></div><div class="settings-card">${matches.map(({ group, item }) => `<button class="settings-row" data-search-result="${item[0]}" data-search-page="${settingTargetPages[group.target]}"><span><b>${escapeHtml(item[1])}</b><small>${escapeHtml(item[2])}</small></span><svg style="width:14px"><use href="#i-chevron"/></svg></button>`).join("") || '<div class="context-empty">没有匹配的原生设置</div>'}</div>`;
+    $$('[data-search-result]', results).forEach((button) => button.addEventListener("click", () => {
+      $("#settingsSearch").value = ""; results.remove(); showSettingsPage(button.dataset.searchPage);
+      setTimeout(() => $(`[data-setting-row="${button.dataset.searchResult}"]`)?.scrollIntoView({ block: "center" }), 0);
+    }));
+  }
+
+  function initials(name) {
+    const value = String(name || "G").trim();
+    return (/^[\u4e00-\u9fff]/.test(value) ? value.slice(0, 1) : value.split(/\s+/).map((part) => part[0]).join("").slice(0, 2) || "G").toUpperCase();
+  }
+
+  function updateAccountUI() {
+    const name = authState.signedIn ? authState.name : "登录 Grok";
+    const email = authState.email || (authState.signedIn ? `通过 ${authState.method || "Grok"} 登录` : "使用 Grok 账号继续");
+    const avatarText = authState.signedIn ? initials(name) : "G";
+    [$("#accountAvatar"), $("#accountPopoverAvatar"), $("#settingsAccountAvatar")].forEach((avatar) => { avatar.textContent = avatarText; });
+    $("#accountAvatar").appendChild(document.createElement("i"));
+    $("#accountAvatar").classList.toggle("is-online", runtimeState.connected);
+    $("#runtimeTitle").textContent = name;
+    $("#runtimeMeta").textContent = runtimeState.connected ? `Grok runtime 在线${runtimeState.version ? ` · ${runtimeState.version}` : ""}` : "Grok runtime 未连接";
+    $("#accountPopoverName").textContent = name; $("#accountPopoverEmail").textContent = email;
+    $("#accountRuntimeDot").classList.toggle("is-online", runtimeState.connected);
+    $("#accountRuntimeLabel").textContent = runtimeState.connected ? "Grok Runtime 在线" : "Grok Runtime 离线";
+    $("#accountVersionLabel").textContent = runtimeState.version || "等待 Runtime 连接";
+    $("#authMenuLabel").textContent = authState.signedIn ? "退出登录" : "登录 Grok";
+    $("#settingsAccountName").textContent = name; $("#settingsAccountEmail").textContent = email;
+    $("#settingsAccountTeam").textContent = [authState.team, authState.role].filter(Boolean).join(" · ");
+    $("#settingsAuthButton").textContent = authState.signedIn ? "退出登录" : "登录 Grok";
+    $("#settingsRuntimeVersion").textContent = runtimeState.version || "—";
+  }
+
+  async function refreshAuthInfo() {
+    authState = api ? await api.authInfo() : { signedIn: false, name: "登录 Grok" };
+    updateAccountUI();
+  }
+
+  async function toggleAuth() {
+    $("#accountPopover").hidden = true;
+    if (!api) { toast("账号预览", "Electron 中连接 Grok 账号"); return; }
+    if (authState.signedIn) {
+      const result = await api.logout();
+      if (!result.ok) { toast("退出登录失败", result.error); return; }
+      authState = result.info; updateAccountUI(); toast("已退出 Grok", "本地 Runtime 仍可使用第三方模型"); return;
+    }
+    showSettingsPage("account"); $("#settingsBackdrop").hidden = false;
+    $("#authProgress").hidden = false; $("#authProgressText").textContent = "正在启动 Grok OAuth 登录…";
+    const result = await api.login();
+    if (!result.ok) { $("#authProgressText").textContent = result.error; toast("登录启动失败", result.error); }
+  }
+
+  async function openSettings(page = "general") {
+    $("#accountPopover").hidden = true; $("#settingsBackdrop").hidden = false; showSettingsPage(page);
+    await Promise.all([loadSavedProviders(), loadNativeConfig(), refreshAuthInfo()]);
+  }
+  function closeSettings() { $("#settingsBackdrop").hidden = true; $("#settingsSearch").value = ""; $("#settingsSearchResults")?.remove(); }
 
   function providerModelOptions() {
     return savedProviders.flatMap((provider) => (provider.models || []).map((model) => ({
@@ -664,9 +894,9 @@
   }
 
   async function detectRuntime() {
-    const orb = $(".runtime-orb");
-    if (!api) { orb.classList.add("is-online"); $("#runtimeTitle").textContent = "界面预览模式"; $("#runtimeMeta").textContent = "Electron 启动后连接 Grok"; return; }
+    if (!api) { runtimeState = { connected: true, version: "界面预览", binary: null }; updateAccountUI(); return; }
     const info = await api.runtimeInfo();
+    runtimeState = info;
     runtimeModels = [
       { id: "auto", label: info.defaultModel ? `自动 · ${info.defaultModel}` : "自动模型" },
       ...(info.models || []).map((id) => ({ id, label: id }))
@@ -676,10 +906,10 @@
     state.modelLabel = runtimeModels.find((item) => item.id === state.model)?.label || runtimeModels[0].label;
     saveState();
     updateWorkspace();
-    orb.classList.toggle("is-online", info.connected);
-    $("#runtimeTitle").textContent = info.connected ? "Grok runtime 在线" : "未检测到 Grok runtime";
-    $("#runtimeMeta").textContent = info.version || "设置 GROK_BINARY 后重试";
     $("#settingsRuntimePath").textContent = info.binary || "未检测到";
+    $("#settingsRuntimeVersion").textContent = info.version || "—";
+    updateAccountUI();
+    if (!$("#settingsBackdrop").hidden && nativeConfig.values) renderNativeSettings();
   }
 
   function bindStaticActions() {
@@ -720,14 +950,30 @@
       const view = $("#browserView"); if (typeof view.loadURL === "function") view.loadURL(url); else view.src = url;
     });
     $("#browserExternal").addEventListener("click", () => api?.openExternal($("#browserUrl").value));
-    $("#approvalSwitch").addEventListener("click", toggleApproval); $("#settingsApproval").addEventListener("click", toggleApproval);
-    $("#settingsButton").addEventListener("click", openSettings); $$('[data-close-modal]').forEach((button) => button.addEventListener("click", closeSettings));
+    $("#approvalSwitch").addEventListener("click", toggleApproval);
+    $("#settingsButton").addEventListener("click", () => openSettings("general")); $$('[data-close-modal]').forEach((button) => button.addEventListener("click", closeSettings));
     $("#settingsBackdrop").addEventListener("click", (event) => { if (event.target === $("#settingsBackdrop")) closeSettings(); });
     $("#paletteBackdrop").addEventListener("click", (event) => { if (event.target === $("#paletteBackdrop")) closePalette(); });
     $("#paletteInput").addEventListener("input", (event) => renderPalette(event.target.value));
     $("#themeButton").addEventListener("click", () => { state.theme = resolvedTheme() === "dark" ? "light" : "dark"; saveState(); updateLayout(); });
     $("#themeSelect").addEventListener("change", (event) => { state.theme = event.target.value; saveState(); updateLayout(); });
-    $("#refreshRuntime").addEventListener("click", detectRuntime); $("#runtimeCard").addEventListener("click", openSettings);
+    $("#refreshRuntime").addEventListener("click", detectRuntime);
+    $("#runtimeCard").addEventListener("click", (event) => { event.stopPropagation(); $("#accountPopover").hidden = !$("#accountPopover").hidden; });
+    $("#profileMenuButton").addEventListener("click", () => openSettings("account"));
+    $("#settingsMenuButton").addEventListener("click", () => openSettings("general"));
+    $("#authMenuButton").addEventListener("click", toggleAuth); $("#settingsAuthButton").addEventListener("click", toggleAuth);
+    $$('[data-settings-page]').forEach((button) => button.addEventListener("click", () => { $("#settingsSearch").value = ""; $("#settingsSearchResults")?.remove(); showSettingsPage(button.dataset.settingsPage); }));
+    $("#settingsSearch").addEventListener("input", (event) => renderSettingsSearch(event.target.value));
+    $("#reloadRawConfig").addEventListener("click", loadNativeConfig);
+    $("#revealRawConfig").addEventListener("click", () => api?.revealNativeConfig());
+    $("#integrationOpenConfig").addEventListener("click", () => api?.openNativeConfig());
+    $("#saveRawConfig").addEventListener("click", async () => {
+      const result = api ? await api.saveRawConfig($("#rawConfigEditor").value) : { ok: true, raw: $("#rawConfigEditor").value, values: nativeConfig.values };
+      if (!result.ok) { toast("配置保存失败", result.error); return; }
+      nativeConfig = result; renderNativeSettings(); renderIntegrationSummary();
+      $("#settingsConfigStatus").textContent = `已保存 ${nativeConfig.path}`; toast("原生配置已保存", "TUI 与桌面端将读取同一份 config.toml");
+      await detectRuntime();
+    });
     $("#discoverModelsButton").addEventListener("click", discoverProviderModels);
     $("#saveProviderButton").addEventListener("click", saveDiscoveredProvider);
     $("#modelButton").addEventListener("click", (event) => {
@@ -763,18 +1009,28 @@
       if (mod && event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
       if (mod && event.key.toLowerCase() === "n") { event.preventDefault(); createThread(); }
       if (mod && event.key === ",") { event.preventDefault(); openSettings(); }
-      if (event.key === "Escape") { closePicker(); closePalette(); closeSettings(); }
+      if (mod && event.key.toLowerCase() === "f" && !$("#settingsBackdrop").hidden) { event.preventDefault(); $("#settingsSearch").focus(); }
+      if (event.key === "Escape") { $("#accountPopover").hidden = true; closePicker(); closePalette(); closeSettings(); }
     });
     document.addEventListener("click", (event) => {
       if (pickerPopover && !pickerPopover.contains(event.target)) closePicker();
       if (!event.target.closest("#dockTabPicker") && !event.target.closest("#dockTabAdd")) $("#dockTabPicker").hidden = true;
+      if (!event.target.closest("#accountPopover") && !event.target.closest("#runtimeCard")) $("#accountPopover").hidden = true;
     });
     matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => { if (state.theme === "system") updateLayout(); });
   }
 
   bindStaticActions();
   if (api) api.onRunEvent(handleRunEvent);
+  if (api) api.onAuthEvent((event) => {
+    const progress = $("#authProgress"); const text = $("#authProgressText"); progress.hidden = false;
+    if (event.kind === "output") text.textContent = `${text.textContent}\n${event.text}`.trim().slice(-6000);
+    else text.textContent = event.text;
+    text.scrollTop = text.scrollHeight;
+    if (event.kind === "complete") setTimeout(async () => { await refreshAuthInfo(); await detectRuntime(); progress.hidden = true; toast("Grok 登录完成", authState.email || authState.name); }, 700);
+    if (event.kind === "error") toast("Grok 登录状态", event.text);
+  });
   renderDockTabPicker();
   renderAll();
-  (async () => { await loadSavedProviders(); await detectRuntime(); refreshActiveDockPane(); })();
+  (async () => { await loadSavedProviders(); await loadNativeConfig(); await refreshAuthInfo(); await detectRuntime(); refreshActiveDockPane(); })();
 })();

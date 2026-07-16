@@ -10,6 +10,8 @@
     "dev": "electron . --dev",
     "verify": "node scripts/verify.cjs",
     "test:providers": "node scripts/test-providers.cjs",
+    "test:config": "node scripts/test-native-config.cjs",
+    "test:account": "node scripts/test-account-info.cjs",
     "preview": "node scripts/serve.cjs",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"
@@ -26,6 +28,8 @@
       "main.cjs",
       "preload.cjs",
       "provider-config.cjs",
+      "native-config.cjs",
+      "account-info.cjs",
       "renderer/**/*",
       "build/icon.png"
     ],

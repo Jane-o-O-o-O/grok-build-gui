@@ -1,0 +1,31 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { readNativeConfig, setValue, updateNativeSetting, validateRawConfig, SETTINGS } = require("../native-config.cjs");
+
+const fixture = `[ui]\n# keep this comment\ntheme = "groknight"\nscroll_speed = 50\n\n[model."custom"]\nmodel = "remote-id"\n`;
+const theme = SETTINGS.find((item) => item.id === "theme");
+const speed = SETTINGS.find((item) => item.id === "scroll_speed");
+const memory = SETTINGS.find((item) => item.id === "memory_enabled");
+let next = setValue(fixture, theme, "tokyonight");
+next = setValue(next, speed, 500);
+next = setValue(next, memory, true);
+assert.match(next, /theme = "tokyonight"/);
+assert.match(next, /scroll_speed = 100/);
+assert.match(next, /\[memory\]\nenabled = true/);
+assert.match(next, /# keep this comment/);
+assert.match(next, /\[model\."custom"\]/);
+
+const directory = fs.mkdtempSync(path.join(os.tmpdir(), "grok-desktop-config-"));
+const configPath = path.join(directory, "config.toml");
+fs.writeFileSync(configPath, fixture);
+updateNativeSetting(configPath, "show_thinking_blocks", false);
+const loaded = readNativeConfig(configPath);
+assert.equal(loaded.values.show_thinking_blocks, false);
+assert.equal(loaded.values.theme, "groknight");
+assert.ok(fs.existsSync(`${configPath}.desktop-backup`));
+assert.throws(() => updateNativeSetting(configPath, "theme", "unknown"));
+assert.throws(() => validateRawConfig("[ui\ntheme='dark'"));
+fs.rmSync(directory, { recursive: true, force: true });
+console.log(`Native config read/write verified for ${SETTINGS.length} Grok settings.`);

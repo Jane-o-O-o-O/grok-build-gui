@@ -5,6 +5,14 @@ const listeners = new Map();
 contextBridge.exposeInMainWorld("grokDesktop", {
   platform: process.platform,
   runtimeInfo: () => ipcRenderer.invoke("runtime:info"),
+  readNativeConfig: () => ipcRenderer.invoke("config:read"),
+  setNativeSetting: (id, value) => ipcRenderer.invoke("config:set", { id, value }),
+  saveRawConfig: (raw) => ipcRenderer.invoke("config:save-raw", raw),
+  openNativeConfig: () => ipcRenderer.invoke("config:open"),
+  revealNativeConfig: () => ipcRenderer.invoke("config:reveal"),
+  authInfo: () => ipcRenderer.invoke("auth:info"),
+  login: () => ipcRenderer.invoke("auth:login"),
+  logout: () => ipcRenderer.invoke("auth:logout"),
   listProviders: () => ipcRenderer.invoke("providers:list"),
   discoverProviderModels: (payload) => ipcRenderer.invoke("providers:discover", payload),
   saveProvider: (payload) => ipcRenderer.invoke("providers:save", payload),
@@ -28,6 +36,15 @@ contextBridge.exposeInMainWorld("grokDesktop", {
     ipcRenderer.on("grok:event", wrapped);
     return () => {
       ipcRenderer.removeListener("grok:event", wrapped);
+      listeners.delete(callback);
+    };
+  },
+  onAuthEvent: (callback) => {
+    const wrapped = (_event, data) => callback(data);
+    listeners.set(callback, wrapped);
+    ipcRenderer.on("auth:event", wrapped);
+    return () => {
+      ipcRenderer.removeListener("auth:event", wrapped);
       listeners.delete(callback);
     };
   }

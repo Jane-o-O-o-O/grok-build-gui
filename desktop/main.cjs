@@ -10,9 +10,16 @@ const {
   makeLocalModelId,
   mergeManagedConfig
 } = require("./provider-config.cjs");
+const {
+  readNativeConfig,
+  saveRawConfig,
+  updateNativeSetting
+} = require("./native-config.cjs");
+const { readAccountInfo } = require("./account-info.cjs");
 
 const activeRuns = new Map();
 let mainWindow;
+let activeAuthRun = null;
 
 function providerStorePath() {
   return process.env.GROK_DESKTOP_PROVIDER_STORE
@@ -24,6 +31,35 @@ function grokConfigPath() {
   return process.env.GROK_DESKTOP_CONFIG_HOME
     ? path.join(process.env.GROK_DESKTOP_CONFIG_HOME, "config.toml")
     : path.join(app.getPath("home"), ".grok", "config.toml");
+}
+
+function grokHomePath() {
+  return process.env.GROK_DESKTOP_CONFIG_HOME || path.join(app.getPath("home"), ".grok");
+}
+
+function authFilePath() {
+  return path.join(grokHomePath(), "auth.json");
+}
+
+function authInfo() {
+  return readAccountInfo(authFilePath(), process.env);
+}
+
+function integrationSummary(raw) {
+  const sectionNames = [...String(raw || "").matchAll(/^\s*\[([^\]]+)\]/gm)].map((match) => match[1]);
+  const count = (prefix) => new Set(sectionNames.filter((name) => name.startsWith(prefix)).map((name) => name.split(".").slice(0, 2).join("."))).size;
+  const directoryCount = (name) => {
+    const target = path.join(grokHomePath(), name);
+    try { return fs.readdirSync(target, { withFileTypes: true }).filter((entry) => !entry.name.startsWith(".")).length; } catch { return 0; }
+  };
+  return {
+    mcp: count("mcp_servers."),
+    models: count("model."),
+    plugins: directoryCount("plugins"),
+    skills: directoryCount("skills"),
+    hooks: directoryCount("hooks"),
+    agents: directoryCount("agents")
+  };
 }
 
 function loadProviderStore() {
@@ -175,6 +211,74 @@ function buildArgs(payload) {
 }
 
 ipcMain.handle("runtime:info", () => runtimeInfo());
+
+ipcMain.handle("config:read", () => {
+  const config = readNativeConfig(grokConfigPath());
+  return { ...config, integrations: integrationSummary(config.raw) };
+});
+
+ipcMain.handle("config:set", (_event, { id, value }) => {
+  try {
+    const result = updateNativeSetting(grokConfigPath(), id, value);
+    return { ok: true, ...result, config: readNativeConfig(grokConfigPath()) };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle("config:save-raw", (_event, raw) => {
+  try {
+    const config = saveRawConfig(grokConfigPath(), raw);
+    return { ok: true, ...config, integrations: integrationSummary(config.raw) };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle("config:open", async () => {
+  const configPath = grokConfigPath();
+  if (!fs.existsSync(configPath)) saveRawConfig(configPath, "# Grok Build configuration\n");
+  const error = await shell.openPath(configPath);
+  return { ok: !error, error: error || null };
+});
+
+ipcMain.handle("config:reveal", () => {
+  const configPath = grokConfigPath();
+  if (!fs.existsSync(configPath)) saveRawConfig(configPath, "# Grok Build configuration\n");
+  shell.showItemInFolder(configPath);
+  return true;
+});
+
+ipcMain.handle("auth:info", () => authInfo());
+
+ipcMain.handle("auth:login", () => {
+  const binary = locateGrok();
+  if (!binary) return { ok: false, error: "未检测到 Grok Runtime" };
+  if (activeAuthRun) return { ok: true, running: true };
+  const child = spawn(binary, ["login", "--oauth"], {
+    cwd: app.getPath("home"), windowsHide: true,
+    env: { ...process.env, ...providerEnvironment() }, stdio: ["ignore", "pipe", "pipe"]
+  });
+  activeAuthRun = child;
+  const send = (kind, chunk) => {
+    const text = String(chunk).replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("auth:event", { kind, text });
+  };
+  child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => send("output", chunk));
+  child.stderr.on("data", (chunk) => send("output", chunk));
+  child.on("error", (error) => { send("error", error.message); activeAuthRun = null; });
+  child.on("exit", (code) => { send(code === 0 ? "complete" : "error", code === 0 ? "登录完成" : `登录进程退出：${code}`); activeAuthRun = null; });
+  return { ok: true, running: true };
+});
+
+ipcMain.handle("auth:logout", () => {
+  const binary = locateGrok();
+  if (!binary) return { ok: false, error: "未检测到 Grok Runtime" };
+  const result = spawnSync(binary, ["logout"], { encoding: "utf8", windowsHide: true, timeout: 30_000, env: { ...process.env, ...providerEnvironment() } });
+  if (result.error || result.status !== 0) return { ok: false, error: result.error?.message || result.stderr || "退出登录失败" };
+  return { ok: true, info: authInfo() };
+});
 
 ipcMain.handle("providers:list", () => publicProviders());
 

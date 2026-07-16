@@ -24,12 +24,16 @@ npm run preview
 ```powershell
 npm run verify
 npm run test:providers
+npm run test:config
+npm run test:account
 npm run pack
 ```
 
 ## 桌面工作区功能
 
 - 设置中的第三方模型支持自动探测 OpenAI 与 Anthropic 协议、获取模型列表并按勾选结果写入 `~/.grok/config.toml`。密钥由 Electron `safeStorage` 保存在桌面端数据目录，不写入 TOML 或 renderer storage。
+- 完整设置窗口直接读写原生 `~/.grok/config.toml`，提供 59 项类型化设置、搜索、分区导航、集成概览和原始 TOML 编辑器；每次写入会生成 `config.toml.desktop-backup`。
+- 左下角账号入口同时展示 Grok 登录身份、Runtime 在线状态和版本，并连接个人资料、完整设置、OAuth 登录与退出登录流程。
 - 右侧工作台支持审阅、终端、浏览器、文件和侧边任务标签；点击 `+` 可以打开功能标签，标签之间可以同时保留并切换。
 - 原生 TUI 与参考设置页的能力对照见 [`docs/settings-capability-audit.md`](docs/settings-capability-audit.md)。
 

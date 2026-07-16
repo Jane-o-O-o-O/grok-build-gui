@@ -8,10 +8,10 @@ every reference-only product or hardware feature as a Grok requirement.
 ## Result
 
 - Reference settings destinations found: **28**
-- Native Grok feature with a direct equivalent: **18**
+- Native Grok feature with a direct equivalent: **19**
 - Native Grok feature with a partial equivalent: **4**
-- Reference-specific feature without a native Grok equivalent: **6**
-- Reusable native coverage: **22 / 28 (78.6%)** when direct and partial
+- Reference-specific feature without a native Grok equivalent: **5**
+- Reusable native coverage: **23 / 28 (82.1%)** when direct and partial
   equivalents are counted together.
 
 The reference route inventory comes from:
@@ -37,7 +37,7 @@ Native Grok evidence comes from the user guide under:
 | 5 | Codex Micro | Reference-only | Product-specific hardware controls |
 | 6 | Appshots | Reference-only | Reference-app-specific feature |
 | 7 | Appearance | Direct | Five themes plus system mode, compact/minimal/fullscreen modes and detailed `pager.toml` styling |
-| 8 | Voice | Reference-only | No native dictation settings subsystem |
+| 8 | Voice | Direct | Native Grok STT supports hold/toggle capture and 25 concrete recognition languages plus system detection |
 | 9 | Pets | Reference-only | Reference-app-specific decoration |
 | 10 | Configuration / Agent | Direct | Agent mode, personas, subagents, reasoning effort, model routing, approval and sandbox modes |
 | 11 | Git | Partial | Git tools, worktrees and review are native; branch-prefix and PR-default preferences need desktop-owned settings |
@@ -77,3 +77,12 @@ configuration model. A practical navigation order is:
 The desktop app should read and write the same `~/.grok/config.toml` keys used
 by the TUI, with desktop-only state kept separately. This keeps CLI, TUI and
 desktop behavior consistent and avoids configuration drift.
+
+## Desktop implementation
+
+The desktop settings surface now reads and writes **59 typed native settings**
+in `~/.grok/config.toml`, including appearance, input, voice, permission,
+subagent, tool, memory, worktree, privacy, contextual-hint and runtime fields.
+Every targeted write preserves unrelated TOML sections and creates
+`config.toml.desktop-backup`. The advanced page also provides a full raw TOML
+editor for MCP, plugin, skill, hook, agent and other open-ended configuration.
