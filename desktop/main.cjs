@@ -1,11 +1,78 @@
-const { app, BrowserWindow, dialog, ipcMain, shell, nativeTheme } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, shell, nativeTheme, safeStorage } = require("electron");
 const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const {
+  discoverModels,
+  makeProviderId,
+  makeEnvKey,
+  makeLocalModelId,
+  mergeManagedConfig
+} = require("./provider-config.cjs");
 
 const activeRuns = new Map();
 let mainWindow;
+
+function providerStorePath() {
+  return process.env.GROK_DESKTOP_PROVIDER_STORE
+    ? path.resolve(process.env.GROK_DESKTOP_PROVIDER_STORE)
+    : path.join(app.getPath("userData"), "providers.json");
+}
+
+function grokConfigPath() {
+  return process.env.GROK_DESKTOP_CONFIG_HOME
+    ? path.join(process.env.GROK_DESKTOP_CONFIG_HOME, "config.toml")
+    : path.join(app.getPath("home"), ".grok", "config.toml");
+}
+
+function loadProviderStore() {
+  try {
+    const value = JSON.parse(fs.readFileSync(providerStorePath(), "utf8"));
+    return { providers: Array.isArray(value.providers) ? value.providers : [] };
+  } catch {
+    return { providers: [] };
+  }
+}
+
+function encryptApiKey(value) {
+  const key = String(value || "");
+  if (safeStorage.isEncryptionAvailable()) {
+    return { encoding: "safe-storage", value: safeStorage.encryptString(key).toString("base64") };
+  }
+  return { encoding: "base64", value: Buffer.from(key, "utf8").toString("base64") };
+}
+
+function decryptApiKey(secret) {
+  if (!secret?.value) return "";
+  try {
+    const data = Buffer.from(secret.value, "base64");
+    return secret.encoding === "safe-storage" ? safeStorage.decryptString(data) : data.toString("utf8");
+  } catch {
+    return "";
+  }
+}
+
+function providerEnvironment() {
+  return Object.fromEntries(loadProviderStore().providers.map((provider) => [provider.envKey, decryptApiKey(provider.secret)]).filter(([, key]) => key));
+}
+
+function publicProviders(store = loadProviderStore()) {
+  return store.providers.map(({ secret, ...provider }) => ({
+    ...provider,
+    hasKey: Boolean(secret?.value),
+    keyProtected: secret?.encoding === "safe-storage"
+  }));
+}
+
+function persistProviderStore(store) {
+  fs.mkdirSync(path.dirname(providerStorePath()), { recursive: true });
+  fs.writeFileSync(providerStorePath(), `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  const configPath = grokConfigPath();
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  const existing = fs.existsSync(configPath) ? fs.readFileSync(configPath, "utf8") : "";
+  fs.writeFileSync(configPath, mergeManagedConfig(existing, store.providers), "utf8");
+}
 
 function locateGrok() {
   const candidates = [
@@ -41,9 +108,10 @@ function runtimeInfo() {
   let models = [];
   let defaultModel = null;
   if (binary) {
-    const result = spawnSync(binary, ["--version"], { encoding: "utf8", windowsHide: true, timeout: 5000 });
+    const env = { ...process.env, ...providerEnvironment() };
+    const result = spawnSync(binary, ["--version"], { encoding: "utf8", windowsHide: true, timeout: 5000, env });
     version = (result.stdout || result.stderr || "").trim() || null;
-    const modelResult = spawnSync(binary, ["models"], { encoding: "utf8", windowsHide: true, timeout: 10000 });
+    const modelResult = spawnSync(binary, ["models"], { encoding: "utf8", windowsHide: true, timeout: 10000, env });
     const modelOutput = `${modelResult.stdout || ""}\n${modelResult.stderr || ""}`;
     defaultModel = modelOutput.match(/Default model:\s*([^\s]+)/i)?.[1] || null;
     models = [...modelOutput.matchAll(/^\s*\*\s+([^\s(]+)/gm)].map((match) => match[1]);
@@ -108,6 +176,56 @@ function buildArgs(payload) {
 
 ipcMain.handle("runtime:info", () => runtimeInfo());
 
+ipcMain.handle("providers:list", () => publicProviders());
+
+ipcMain.handle("providers:discover", async (_event, payload) => {
+  try {
+    return { ok: true, ...(await discoverModels(payload || {})) };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle("providers:save", async (_event, payload) => {
+  try {
+    if (!payload || !Array.isArray(payload.models) || !payload.models.length) throw new Error("请至少选择一个模型");
+    const store = loadProviderStore();
+    const providerId = payload.id || makeProviderId(payload.baseUrl);
+    const previous = store.providers.find((item) => item.id === providerId);
+    const secret = String(payload.apiKey || "").trim() ? encryptApiKey(payload.apiKey) : previous?.secret;
+    if (!secret) throw new Error("请填写 API 密钥");
+    const provider = {
+      id: providerId,
+      name: payload.name || new URL(payload.baseUrl).host,
+      baseUrl: payload.baseUrl,
+      protocol: payload.protocol === "anthropic" ? "anthropic" : "openai",
+      envKey: previous?.envKey || makeEnvKey(providerId),
+      secret,
+      models: payload.models.map((model) => ({
+        id: String(model.id),
+        name: String(model.name || model.id),
+        contextWindow: Number(model.contextWindow) || null,
+        maxOutput: Number(model.maxOutput) || null,
+        localId: previous?.models?.find((item) => item.id === model.id)?.localId || makeLocalModelId(providerId, model.id)
+      })),
+      updatedAt: Date.now()
+    };
+    const index = store.providers.findIndex((item) => item.id === providerId);
+    if (index >= 0) store.providers[index] = provider; else store.providers.push(provider);
+    persistProviderStore(store);
+    return { ok: true, providers: publicProviders(store) };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle("providers:remove", async (_event, providerId) => {
+  const store = loadProviderStore();
+  store.providers = store.providers.filter((provider) => provider.id !== providerId);
+  persistProviderStore(store);
+  return publicProviders(store);
+});
+
 ipcMain.handle("dialog:workspace", async () => {
   const result = await dialog.showOpenDialog(mainWindow, { properties: ["openDirectory", "createDirectory"] });
   return result.canceled ? null : result.filePaths[0];
@@ -126,6 +244,75 @@ ipcMain.handle("shell:external", async (_event, target) => {
   if (typeof target === "string" && /^https?:\/\//.test(target)) await shell.openExternal(target);
 });
 
+function validWorkspace(cwd) {
+  return typeof cwd === "string" && fs.existsSync(cwd) && fs.statSync(cwd).isDirectory();
+}
+
+ipcMain.handle("workspace:review", async (_event, cwd) => {
+  if (!validWorkspace(cwd)) return { ok: false, error: "工作区不存在" };
+  const status = spawnSync("git", ["status", "--short"], { cwd, encoding: "utf8", windowsHide: true, timeout: 10_000 });
+  const stat = spawnSync("git", ["diff", "--stat"], { cwd, encoding: "utf8", windowsHide: true, timeout: 10_000 });
+  if (status.error) return { ok: false, error: status.error.message };
+  const files = (status.stdout || "").split(/\r?\n/).filter(Boolean).map((line) => ({ status: line.slice(0, 2), path: line.slice(3) }));
+  return { ok: true, files, stat: (stat.stdout || "").trim(), clean: files.length === 0 };
+});
+
+ipcMain.handle("workspace:files", async (_event, cwd) => {
+  if (!validWorkspace(cwd)) return { ok: false, error: "工作区不存在" };
+  const ignored = new Set([".git", "node_modules", "target", "dist", ".idea", ".vscode"]);
+  const files = [];
+  const walk = (directory, depth = 0) => {
+    if (files.length >= 600 || depth > 8) return;
+    let entries = [];
+    try { entries = fs.readdirSync(directory, { withFileTypes: true }); } catch { return; }
+    entries.sort((a, b) => Number(a.isFile()) - Number(b.isFile()) || a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      if (files.length >= 600 || ignored.has(entry.name) || entry.name.startsWith(".preview-")) continue;
+      const absolute = path.join(directory, entry.name);
+      const relative = path.relative(cwd, absolute).replace(/\\/g, "/");
+      if (entry.isDirectory()) walk(absolute, depth + 1);
+      else if (entry.isFile()) files.push({ path: relative, size: fs.statSync(absolute).size });
+    }
+  };
+  walk(cwd);
+  return { ok: true, files, truncated: files.length >= 600 };
+});
+
+ipcMain.handle("workspace:read", async (_event, { cwd, file }) => {
+  if (!validWorkspace(cwd) || typeof file !== "string") return { ok: false, error: "文件路径无效" };
+  const target = path.resolve(cwd, file);
+  const relative = path.relative(path.resolve(cwd), target);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return { ok: false, error: "文件超出工作区" };
+  try {
+    const stat = fs.statSync(target);
+    if (!stat.isFile()) throw new Error("目标不是文件");
+    if (stat.size > 1024 * 1024) throw new Error("文件超过 1 MB，请在系统编辑器中打开");
+    const buffer = fs.readFileSync(target);
+    if (buffer.includes(0)) throw new Error("这是二进制文件");
+    return { ok: true, content: buffer.toString("utf8"), size: stat.size };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle("terminal:run", async (_event, { cwd, command }) => {
+  if (!validWorkspace(cwd) || typeof command !== "string" || !command.trim()) return { ok: false, error: "请输入命令" };
+  return new Promise((resolve) => {
+    const shellExe = process.platform === "win32" ? "powershell.exe" : "/bin/sh";
+    const shellArgs = process.platform === "win32"
+      ? ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", `[Console]::OutputEncoding = [Text.UTF8Encoding]::new(); ${command}`]
+      : ["-lc", command];
+    const child = spawn(shellExe, shellArgs, { cwd, windowsHide: true, env: { ...process.env, ...providerEnvironment() } });
+    let stdout = ""; let stderr = ""; let settled = false;
+    const cap = (current, chunk) => `${current}${chunk}`.slice(-200_000);
+    child.stdout.on("data", (chunk) => { stdout = cap(stdout, chunk); });
+    child.stderr.on("data", (chunk) => { stderr = cap(stderr, chunk); });
+    const timer = setTimeout(() => { if (!settled) child.kill(); }, 30_000);
+    child.on("error", (error) => { settled = true; clearTimeout(timer); resolve({ ok: false, error: error.message }); });
+    child.on("exit", (code) => { if (settled) return; settled = true; clearTimeout(timer); resolve({ ok: true, code, stdout, stderr }); });
+  });
+});
+
 ipcMain.handle("grok:prompt", async (_event, payload) => {
   const binary = locateGrok();
   if (!binary) return { ok: false, error: "Grok runtime was not found. Set GROK_BINARY or install the grok CLI." };
@@ -140,6 +327,7 @@ ipcMain.handle("grok:prompt", async (_event, payload) => {
     windowsHide: true,
     env: {
       ...process.env,
+      ...providerEnvironment(),
       GROK_LAUNCH_SOURCE: "grok-desktop",
       GROK_CLIENT_NAME: "grok-desktop"
     },
@@ -188,7 +376,8 @@ function createWindow() {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      webviewTag: true
     }
   });
   mainWindow.loadFile(path.join(__dirname, "renderer", "index.html"));
@@ -196,6 +385,18 @@ function createWindow() {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) shell.openExternal(url);
     return { action: "deny" };
+  });
+  mainWindow.webContents.on("will-attach-webview", (_event, webPreferences) => {
+    delete webPreferences.preload;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+  });
+  mainWindow.webContents.on("did-attach-webview", (_event, contents) => {
+    contents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//.test(url)) shell.openExternal(url);
+      return { action: "deny" };
+    });
   });
 }
 

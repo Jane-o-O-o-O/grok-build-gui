@@ -30,6 +30,12 @@
       <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="m6 10 6-6 6 6M12 4v16" /></symbol>
       <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 8a7 7 0 0 1 11.9-1l2 5M4 12l2 5a7 7 0 0 0 11.9-1" /></symbol>
       <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13M10 10v6M14 10v6" /></symbol>
+      <symbol id="i-review" viewBox="0 0 24 24"><path d="M8 4h8l1 2h3v14H4V6h3z"/><path d="m8 13 2.2 2.2L16 9.5"/></symbol>
+      <symbol id="i-browser" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.4 2.5 3.6 5.5 3.6 9s-1.2 6.5-3.6 9M12 3C9.6 5.5 8.4 8.5 8.4 12s1.2 6.5 3.6 9"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v5h4"/></symbol>
+      <symbol id="i-tasks" viewBox="0 0 24 24"><path d="m4 6 1.5 1.5L8 5M11 6h9M4 12l1.5 1.5L8 11M11 12h9M4 18l1.5 1.5L8 17M11 18h9"/></symbol>
+      <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8"/><path d="M18 13v6H5V6h6"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7z"/></symbol>
     </svg>
 
     <div class="app-shell" id="appShell">
@@ -85,7 +91,7 @@
           </div>
           <div class="toolbar-group toolbar-group--right">
             <span class="session-state" id="sessionState"><i></i>准备就绪</span>
-            <button class="icon-button" id="inspectorToggle" title="任务脉络"><svg><use href="#i-command"/></svg></button>
+            <button class="icon-button" id="inspectorToggle" title="右侧工作台"><svg><use href="#i-command"/></svg></button>
           </div>
         </div>
 
@@ -117,19 +123,51 @@
       </main>
 
       <aside class="inspector" id="inspector">
-        <div class="inspector__head"><div><small>ACTIVITY MAP</small><h2>任务脉络</h2></div><button class="icon-button" id="inspectorClose"><svg><use href="#i-x"/></svg></button></div>
-        <div class="signal-map" aria-hidden="true"><span></span><span></span><span></span><span></span><i></i></div>
-        <div class="inspector-section">
-          <div class="section-label"><span>本轮</span><small id="turnDuration">—</small></div>
-          <ol class="activity-timeline" id="activityTimeline">
-            <li class="is-done"><i><svg><use href="#i-check"/></svg></i><span><b>载入工作区</b><small>读取 Git 与项目上下文</small></span></li>
-            <li class="is-active"><i></i><span><b>等待指令</b><small>准备调用 Grok Build</small></span></li>
-          </ol>
+        <div class="dock-tabbar">
+          <div class="dock-tabs" id="dockTabs"></div>
+          <button class="dock-tab-add" id="dockTabAdd" title="打开功能区"><svg><use href="#i-plus"/></svg></button>
+          <button class="icon-button dock-close" id="inspectorClose" title="关闭工作台"><svg><use href="#i-x"/></svg></button>
         </div>
-        <div class="inspector-section inspector-section--files">
-          <div class="section-label"><span>上下文</span><small id="fileCount">0 FILES</small></div>
-          <div class="context-empty" id="contextFiles"><svg><use href="#i-folder"/></svg><span>附件和修改过的文件会显示在这里</span></div>
+        <div class="dock-panes">
+          <section class="dock-pane" data-dock-pane="tasks">
+            <div class="dock-pane__title"><div><small>ACTIVITY MAP</small><h2>侧边任务</h2></div><span id="turnDuration">—</span></div>
+            <div class="signal-map" aria-hidden="true"><span></span><span></span><span></span><span></span><i></i></div>
+            <div class="inspector-section">
+              <div class="section-label"><span>本轮</span><small>LIVE</small></div>
+              <ol class="activity-timeline" id="activityTimeline">
+                <li class="is-done"><i><svg><use href="#i-check"/></svg></i><span><b>载入工作区</b><small>读取 Git 与项目上下文</small></span></li>
+                <li class="is-active"><i></i><span><b>等待指令</b><small>准备调用 Grok Build</small></span></li>
+              </ol>
+            </div>
+            <div class="inspector-section inspector-section--files">
+              <div class="section-label"><span>上下文</span><small id="fileCount">0 FILES</small></div>
+              <div class="context-empty" id="contextFiles"><svg><use href="#i-folder"/></svg><span>附件和修改过的文件会显示在这里</span></div>
+            </div>
+          </section>
+
+          <section class="dock-pane" data-dock-pane="review">
+            <div class="dock-pane__title"><div><small>WORKTREE REVIEW</small><h2>审阅</h2></div><button class="icon-button" id="reviewRefresh"><svg><use href="#i-refresh"/></svg></button></div>
+            <div class="review-summary" id="reviewSummary"></div>
+            <div class="review-files" id="reviewFiles"></div>
+          </section>
+
+          <section class="dock-pane" data-dock-pane="terminal">
+            <div class="dock-pane__title"><div><small>LOCAL SHELL</small><h2>终端</h2></div><span class="terminal-cwd" id="terminalCwd"></span></div>
+            <div class="terminal-screen" id="terminalOutput"><span class="terminal-prompt">Grok Build terminal ready.</span></div>
+            <form class="terminal-composer" id="terminalForm"><span>›</span><input id="terminalCommand" autocomplete="off" spellcheck="false" placeholder="输入命令…"/><button type="submit"><svg><use href="#i-play"/></svg></button></form>
+          </section>
+
+          <section class="dock-pane" data-dock-pane="browser">
+            <form class="browser-bar" id="browserForm"><svg><use href="#i-browser"/></svg><input id="browserUrl" placeholder="输入网址或 localhost 地址" spellcheck="false"/><button type="submit">前往</button><button type="button" class="icon-button" id="browserExternal"><svg><use href="#i-external"/></svg></button></form>
+            <div class="browser-stage"><webview id="browserView" src="about:blank" partition="temp:grok-browser" webpreferences="contextIsolation=yes,nodeIntegration=no,sandbox=yes"></webview></div>
+          </section>
+
+          <section class="dock-pane" data-dock-pane="files">
+            <div class="dock-pane__title"><div><small>WORKSPACE INDEX</small><h2>文件</h2></div><button class="icon-button" id="filesRefresh"><svg><use href="#i-refresh"/></svg></button></div>
+            <div class="file-workbench"><div class="file-list" id="workspaceFileList"></div><div class="file-preview"><div class="file-preview__head" id="filePreviewTitle">选择文件进行预览</div><pre id="filePreviewContent"></pre></div></div>
+          </section>
         </div>
+        <div class="dock-tab-picker" id="dockTabPicker" hidden></div>
         <div class="inspector__foot"><span class="permission-dot"></span><div><b>工具许可</b><small id="permissionLabel">每次询问</small></div><button class="switch" id="approvalSwitch" role="switch" aria-checked="false"><i></i></button></div>
       </aside>
     </div>
@@ -144,9 +182,22 @@
     <div class="modal-backdrop" id="settingsBackdrop" hidden>
       <section class="modal settings-modal" role="dialog" aria-modal="true">
         <header><div><small>GROK BUILD</small><h2>桌面设置</h2></div><button class="icon-button" data-close-modal><svg><use href="#i-x"/></svg></button></header>
-        <div class="settings-row"><span><b>自动批准工具</b><small>允许 Grok 直接执行本地命令和文件修改</small></span><button class="switch" id="settingsApproval" role="switch" aria-checked="false"><i></i></button></div>
-        <div class="settings-row"><span><b>界面主题</b><small>跟随系统、深色或浅色</small></span><select id="themeSelect"><option value="system">跟随系统</option><option value="dark">深色</option><option value="light">浅色</option></select></div>
-        <div class="settings-row"><span><b>Grok Runtime</b><small id="settingsRuntimePath">自动检测</small></span><button class="secondary-button" id="refreshRuntime"><svg><use href="#i-refresh"/></svg>重新检测</button></div>
+        <div class="settings-scroll">
+          <div class="settings-section-label">常规</div>
+          <div class="settings-row"><span><b>自动批准工具</b><small>允许 Grok 直接执行本地命令和文件修改</small></span><button class="switch" id="settingsApproval" role="switch" aria-checked="false"><i></i></button></div>
+          <div class="settings-row"><span><b>界面主题</b><small>跟随系统、深色或浅色</small></span><select id="themeSelect"><option value="system">跟随系统</option><option value="dark">深色</option><option value="light">浅色</option></select></div>
+          <div class="settings-row"><span><b>Grok Runtime</b><small id="settingsRuntimePath">自动检测</small></span><button class="secondary-button" id="refreshRuntime"><svg><use href="#i-refresh"/></svg>重新检测</button></div>
+
+          <div class="settings-section-label"><span>第三方模型</span><small>自动识别 OpenAI / Anthropic 协议</small></div>
+          <div class="provider-form">
+            <label><span>API URL</span><input id="providerUrl" type="url" placeholder="https://api.example.com/v1" spellcheck="false"/></label>
+            <label><span>API 密钥</span><input id="providerKey" type="password" placeholder="输入密钥，仅保存在本机" autocomplete="new-password"/></label>
+            <div class="provider-form__actions"><span class="provider-detect-status" id="providerDetectStatus">填写连接信息后发现模型</span><button class="secondary-button" id="discoverModelsButton"><svg><use href="#i-search"/></svg>发现模型</button></div>
+          </div>
+          <div class="discovered-models" id="discoveredModels" hidden></div>
+          <div class="provider-save-row" id="providerSaveRow" hidden><span id="providerSelectionCount">已选择 0 个模型</span><button class="primary-button" id="saveProviderButton">保存所选模型</button></div>
+          <div class="saved-providers" id="savedProviders"></div>
+        </div>
         <footer><span>桌面端通过 streaming-json 与当前 Grok TUI runtime 共享会话。</span><button class="primary-button" data-close-modal>完成</button></footer>
       </section>
     </div>

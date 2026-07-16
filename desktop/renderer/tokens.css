@@ -19,7 +19,7 @@
   --font-mono: "SFMono-Regular", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   --titlebar-height: 44px;
   --sidebar-width: 278px;
-  --inspector-width: 304px;
+  --inspector-width: 430px;
   --conversation-width: 820px;
   --ease-out: cubic-bezier(.23, 1, .32, 1);
   --ease-spring: cubic-bezier(.2, .9, .2, 1.08);

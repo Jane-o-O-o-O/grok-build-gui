@@ -18,7 +18,9 @@
     threads: [],
     attachments: [],
     inspectorOpen: true,
-    sidebarHidden: false
+    sidebarHidden: false,
+    dockTabs: [{ id: "tasks", type: "tasks", title: "侧边任务" }],
+    activeDockTabId: "tasks"
   };
 
   let state = loadState();
@@ -29,11 +31,24 @@
   let runtimeModels = [{ id: "auto", label: "自动模型" }];
   let streamRenderFrame = null;
   let pickerPopover = null;
+  let providerDiscovery = null;
+  let savedProviders = [];
+
+  const dockTypes = {
+    review: { title: "审阅", icon: "i-review", description: "查看 Git 工作区改动" },
+    terminal: { title: "终端", icon: "i-terminal", description: "运行本地 Shell 命令" },
+    browser: { title: "浏览器", icon: "i-browser", description: "打开网页与本地服务" },
+    files: { title: "文件", icon: "i-file", description: "浏览和预览工作区文件" },
+    tasks: { title: "侧边任务", icon: "i-tasks", description: "追踪当前 Grok 活动" }
+  };
 
   function loadState() {
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-      return { ...defaultState, ...saved, attachments: [] };
+      const merged = { ...defaultState, ...saved, attachments: [] };
+      if (!Array.isArray(merged.dockTabs) || !merged.dockTabs.length) merged.dockTabs = structuredClone(defaultState.dockTabs);
+      if (!merged.dockTabs.some((tab) => tab.id === merged.activeDockTabId)) merged.activeDockTabId = merged.dockTabs[0].id;
+      return merged;
     } catch {
       return structuredClone(defaultState);
     }
@@ -242,7 +257,103 @@
   }
 
   function renderAll() {
-    renderThreads(); renderMessages(); renderAttachments(); updateLayout(); updateWorkspace();
+    renderThreads(); renderMessages(); renderAttachments(); renderDockTabs(); updateLayout(); updateWorkspace();
+  }
+
+  function renderDockTabs() {
+    const target = $("#dockTabs");
+    target.innerHTML = state.dockTabs.map((tab) => {
+      const definition = dockTypes[tab.type] || dockTypes.tasks;
+      return `<button class="dock-tab ${tab.id === state.activeDockTabId ? "is-active" : ""}" data-dock-tab="${tab.id}"><svg><use href="#${definition.icon}"/></svg><span>${escapeHtml(tab.title || definition.title)}</span>${state.dockTabs.length > 1 ? `<i class="dock-tab__close" data-close-dock="${tab.id}"><svg><use href="#i-x"/></svg></i>` : ""}</button>`;
+    }).join("");
+    const active = state.dockTabs.find((tab) => tab.id === state.activeDockTabId) || state.dockTabs[0];
+    $$("[data-dock-pane]").forEach((pane) => pane.classList.toggle("is-active", pane.dataset.dockPane === active?.type));
+    $$('[data-dock-tab]').forEach((button) => button.addEventListener("click", (event) => {
+      if (event.target.closest("[data-close-dock]")) return;
+      state.activeDockTabId = button.dataset.dockTab;
+      saveState(); renderDockTabs(); refreshActiveDockPane();
+    }));
+    $$('[data-close-dock]').forEach((button) => button.addEventListener("click", (event) => {
+      event.stopPropagation(); closeDockTab(button.dataset.closeDock);
+    }));
+  }
+
+  function openDockType(type) {
+    const definition = dockTypes[type];
+    if (!definition) return;
+    let tab = state.dockTabs.find((item) => item.type === type);
+    if (!tab) {
+      tab = { id: `${type}-${uid()}`, type, title: definition.title };
+      state.dockTabs.push(tab);
+    }
+    state.activeDockTabId = tab.id;
+    state.inspectorOpen = true;
+    $("#dockTabPicker").hidden = true;
+    saveState(); renderDockTabs(); updateLayout(); refreshActiveDockPane();
+  }
+
+  function closeDockTab(tabId) {
+    if (state.dockTabs.length <= 1) return;
+    const index = state.dockTabs.findIndex((tab) => tab.id === tabId);
+    if (index < 0) return;
+    const wasActive = state.activeDockTabId === tabId;
+    state.dockTabs.splice(index, 1);
+    if (wasActive) state.activeDockTabId = state.dockTabs[Math.max(0, index - 1)].id;
+    saveState(); renderDockTabs(); refreshActiveDockPane();
+  }
+
+  function renderDockTabPicker() {
+    $("#dockTabPicker").innerHTML = Object.entries(dockTypes).map(([type, item]) => `<button class="dock-tab-choice" data-open-dock="${type}"><svg><use href="#${item.icon}"/></svg><span><b>${item.title}</b><small>${item.description}</small></span></button>`).join("");
+    $$('[data-open-dock]').forEach((button) => button.addEventListener("click", () => openDockType(button.dataset.openDock)));
+  }
+
+  function activeDockType() {
+    return state.dockTabs.find((tab) => tab.id === state.activeDockTabId)?.type || "tasks";
+  }
+
+  function refreshActiveDockPane() {
+    const type = activeDockType();
+    if (type === "review") refreshReview();
+    if (type === "files") refreshWorkspaceFiles();
+    if (type === "terminal") $("#terminalCwd").textContent = basename(state.cwd);
+  }
+
+  async function refreshReview() {
+    const summary = $("#reviewSummary");
+    summary.className = "review-summary";
+    summary.textContent = "正在读取 Git 工作区…";
+    if (!api) { summary.textContent = "桌面模式下读取 Git 审阅信息"; return; }
+    const result = await api.reviewWorkspace(state.cwd);
+    if (!result.ok) { summary.textContent = result.error; return; }
+    summary.classList.toggle("is-clean", result.clean);
+    summary.textContent = result.clean ? "工作区干净，没有待审阅改动。" : (result.stat || `${result.files.length} 个文件发生变化`);
+    $("#reviewFiles").innerHTML = result.files.map((file) => `<button class="review-file" data-review-file="${escapeHtml(file.path)}"><i>${escapeHtml(file.status)}</i><span>${escapeHtml(file.path)}</span></button>`).join("");
+    $$('[data-review-file]').forEach((button) => button.addEventListener("click", () => { openDockType("files"); openWorkspaceFile(button.dataset.reviewFile); }));
+  }
+
+  async function refreshWorkspaceFiles() {
+    const list = $("#workspaceFileList");
+    list.innerHTML = '<div class="context-empty"><span>正在建立文件索引…</span></div>';
+    if (!api) { list.innerHTML = '<div class="context-empty"><span>桌面模式下浏览工作区文件</span></div>'; return; }
+    const result = await api.listWorkspaceFiles(state.cwd);
+    if (!result.ok) { list.innerHTML = `<div class="context-empty"><span>${escapeHtml(result.error)}</span></div>`; return; }
+    list.innerHTML = result.files.map((file) => `<button class="workspace-file" data-workspace-file="${escapeHtml(file.path)}"><svg><use href="#i-file"/></svg><span>${escapeHtml(file.path)}</span><small>${formatBytes(file.size)}</small></button>`).join("");
+    $$('[data-workspace-file]').forEach((button) => button.addEventListener("click", () => openWorkspaceFile(button.dataset.workspaceFile)));
+  }
+
+  function formatBytes(size) {
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} K`;
+    return `${(size / 1024 / 1024).toFixed(1)} M`;
+  }
+
+  async function openWorkspaceFile(file) {
+    $("#filePreviewTitle").textContent = file;
+    $("#filePreviewContent").textContent = "正在读取…";
+    $$('[data-workspace-file]').forEach((button) => button.classList.toggle("is-active", button.dataset.workspaceFile === file));
+    if (!api) return;
+    const result = await api.readWorkspaceFile(state.cwd, file);
+    $("#filePreviewContent").textContent = result.ok ? result.content : result.error;
   }
 
   function updateLayout() {
@@ -389,7 +500,7 @@
   async function chooseWorkspace() {
     if (!api) { toast("桌面预览", "Electron 中可选择本地工作区"); return; }
     const cwd = await api.pickWorkspace();
-    if (cwd) { state.cwd = cwd; const thread = activeThread(); if (thread && !thread.messages.length) thread.cwd = cwd; saveState(); updateWorkspace(); updateWindowTrail(); toast("已切换工作区", cwd); }
+    if (cwd) { state.cwd = cwd; const thread = activeThread(); if (thread && !thread.messages.length) thread.cwd = cwd; saveState(); updateWorkspace(); updateWindowTrail(); refreshActiveDockPane(); toast("已切换工作区", cwd); }
   }
 
   async function chooseFiles() {
@@ -414,8 +525,108 @@
     $("#paletteResults").innerHTML = `<div class="palette-group">快速操作</div>${matches.map((item, index) => `<button class="palette-item ${index === 0 ? "is-selected" : ""}" data-palette="${index}"><svg><use href="#${item.icon}"/></svg><span>${escapeHtml(item.title)}</span><small>${escapeHtml(item.meta)}</small></button>`).join("") || '<div class="context-empty">没有匹配项</div>'}`;
     $$('[data-palette]').forEach((button) => button.addEventListener("click", () => { matches[Number(button.dataset.palette)].run(); closePalette(); }));
   }
-  function openSettings() { $("#settingsBackdrop").hidden = false; }
+  function openSettings() { $("#settingsBackdrop").hidden = false; loadSavedProviders(); }
   function closeSettings() { $("#settingsBackdrop").hidden = true; }
+
+  function providerModelOptions() {
+    return savedProviders.flatMap((provider) => (provider.models || []).map((model) => ({
+      id: model.localId,
+      label: model.name || model.id,
+      provider: provider.name,
+      protocol: provider.protocol
+    })));
+  }
+
+  function mergeProviderModels() {
+    const local = providerModelOptions();
+    const ids = new Set(runtimeModels.map((item) => item.id));
+    for (const model of local) if (!ids.has(model.id)) runtimeModels.push(model);
+    if (!runtimeModels.some((item) => item.id === state.model)) {
+      state.model = "auto";
+      state.modelLabel = runtimeModels[0]?.label || "自动模型";
+    }
+    saveState(); updateWorkspace();
+  }
+
+  async function loadSavedProviders() {
+    if (!api) { renderSavedProviders(); return; }
+    savedProviders = await api.listProviders();
+    renderSavedProviders(); mergeProviderModels();
+  }
+
+  function renderSavedProviders() {
+    const target = $("#savedProviders");
+    if (!savedProviders.length) {
+      target.innerHTML = '<div class="context-empty"><span>还没有第三方模型服务</span></div>';
+      return;
+    }
+    target.innerHTML = savedProviders.map((provider) => `<div class="saved-provider"><span class="saved-provider__protocol">${provider.protocol === "anthropic" ? "ANTH" : "OAI"}</span><span><b>${escapeHtml(provider.name)}</b><small>${escapeHtml(provider.baseUrl)} · ${provider.models.length} 个模型${provider.keyProtected ? " · 系统加密" : ""}</small></span><button class="icon-button" data-remove-provider="${provider.id}" title="移除"><svg><use href="#i-trash"/></svg></button></div>`).join("");
+    $$('[data-remove-provider]').forEach((button) => button.addEventListener("click", async () => {
+      savedProviders = api ? await api.removeProvider(button.dataset.removeProvider) : [];
+      runtimeModels = runtimeModels.filter((item) => !String(item.id).startsWith(`desktop-${button.dataset.removeProvider.replace(/^provider-/, "provider")}`));
+      renderSavedProviders(); mergeProviderModels(); await detectRuntime();
+      toast("模型服务已移除", "Grok 配置已同步更新");
+    }));
+  }
+
+  async function discoverProviderModels() {
+    const url = $("#providerUrl").value.trim();
+    const key = $("#providerKey").value.trim();
+    const status = $("#providerDetectStatus");
+    status.className = "provider-detect-status";
+    status.textContent = "正在尝试 OpenAI 与 Anthropic 协议…";
+    $("#discoverModelsButton").disabled = true;
+    const result = api ? await api.discoverProviderModels({ baseUrl: url, apiKey: key }) : { ok: true, protocol: "openai", baseUrl: url, models: [{ id: "example-model", name: "Example Model" }] };
+    $("#discoverModelsButton").disabled = false;
+    if (!result.ok) {
+      providerDiscovery = null;
+      status.classList.add("is-error"); status.textContent = result.error;
+      $("#discoveredModels").hidden = true; $("#providerSaveRow").hidden = true;
+      return;
+    }
+    providerDiscovery = { ...result, apiKey: key, selected: new Set(result.models.map((model) => model.id)) };
+    status.classList.add("is-success");
+    status.textContent = `已识别 ${result.protocol === "anthropic" ? "Anthropic Messages" : "OpenAI Chat Completions"} 协议，共 ${result.models.length} 个模型`;
+    renderDiscoveredModels();
+  }
+
+  function renderDiscoveredModels() {
+    const target = $("#discoveredModels");
+    if (!providerDiscovery) { target.hidden = true; return; }
+    target.hidden = false;
+    target.innerHTML = providerDiscovery.models.map((model) => `<label class="discovered-model"><input type="checkbox" data-discovered-model="${escapeHtml(model.id)}" ${providerDiscovery.selected.has(model.id) ? "checked" : ""}/><span><b>${escapeHtml(model.name || model.id)}</b><small>${escapeHtml(model.id)}${model.owner ? ` · ${escapeHtml(model.owner)}` : ""}</small></span></label>`).join("");
+    $$('[data-discovered-model]').forEach((input) => input.addEventListener("change", () => {
+      input.checked ? providerDiscovery.selected.add(input.dataset.discoveredModel) : providerDiscovery.selected.delete(input.dataset.discoveredModel);
+      updateProviderSelection();
+    }));
+    $("#providerSaveRow").hidden = false; updateProviderSelection();
+  }
+
+  function updateProviderSelection() {
+    const count = providerDiscovery?.selected.size || 0;
+    $("#providerSelectionCount").textContent = `已选择 ${count} 个模型`;
+    $("#saveProviderButton").disabled = count === 0;
+  }
+
+  async function saveDiscoveredProvider() {
+    if (!providerDiscovery) return;
+    const selected = providerDiscovery.models.filter((model) => providerDiscovery.selected.has(model.id));
+    const result = api ? await api.saveProvider({
+      baseUrl: providerDiscovery.baseUrl,
+      apiKey: providerDiscovery.apiKey,
+      protocol: providerDiscovery.protocol,
+      models: selected
+    }) : { ok: true, providers: [] };
+    if (!result.ok) { toast("保存失败", result.error); return; }
+    savedProviders = result.providers;
+    providerDiscovery = null;
+    $("#providerUrl").value = ""; $("#providerKey").value = "";
+    $("#providerDetectStatus").className = "provider-detect-status";
+    $("#providerDetectStatus").textContent = "填写连接信息后发现模型";
+    $("#discoveredModels").hidden = true; $("#providerSaveRow").hidden = true;
+    renderSavedProviders(); await detectRuntime(); mergeProviderModels();
+    toast("第三方模型已保存", `${selected.length} 个模型已加入模型选择器`);
+  }
 
   function closePicker() {
     pickerPopover?.remove();
@@ -460,6 +671,7 @@
       { id: "auto", label: info.defaultModel ? `自动 · ${info.defaultModel}` : "自动模型" },
       ...(info.models || []).map((id) => ({ id, label: id }))
     ];
+    mergeProviderModels();
     if (!runtimeModels.some((item) => item.id === state.model)) state.model = "auto";
     state.modelLabel = runtimeModels.find((item) => item.id === state.model)?.label || runtimeModels[0].label;
     saveState();
@@ -480,8 +692,34 @@
     $("#promptInput").addEventListener("input", autoSizeInput);
     $("#promptInput").addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); sendPrompt(); } });
     $("#sidebarToggle").addEventListener("click", () => { state.sidebarHidden = !state.sidebarHidden; saveState(); updateLayout(); });
-    $("#inspectorToggle").addEventListener("click", () => { state.inspectorOpen = !state.inspectorOpen; saveState(); updateLayout(); });
+    $("#inspectorToggle").addEventListener("click", () => { state.inspectorOpen = !state.inspectorOpen; saveState(); updateLayout(); if (state.inspectorOpen) refreshActiveDockPane(); });
     $("#inspectorClose").addEventListener("click", () => { state.inspectorOpen = false; saveState(); updateLayout(); });
+    $("#dockTabAdd").addEventListener("click", (event) => { event.stopPropagation(); $("#dockTabPicker").hidden = !$("#dockTabPicker").hidden; });
+    $("#reviewRefresh").addEventListener("click", refreshReview);
+    $("#filesRefresh").addEventListener("click", refreshWorkspaceFiles);
+    $("#terminalForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const input = $("#terminalCommand"); const command = input.value.trim(); if (!command) return;
+      const output = $("#terminalOutput");
+      output.insertAdjacentHTML("beforeend", `<div class="terminal-command-line">› ${escapeHtml(command)}</div>`);
+      input.value = ""; output.scrollTop = output.scrollHeight;
+      if (!api) { output.insertAdjacentHTML("beforeend", '<div>桌面模式下执行本地命令。</div>'); return; }
+      const result = await api.runTerminalCommand(state.cwd, command);
+      if (!result.ok) output.insertAdjacentHTML("beforeend", `<div class="terminal-error">${escapeHtml(result.error)}</div>`);
+      else {
+        if (result.stdout) output.insertAdjacentHTML("beforeend", `<div>${escapeHtml(result.stdout)}</div>`);
+        if (result.stderr) output.insertAdjacentHTML("beforeend", `<div class="terminal-error">${escapeHtml(result.stderr)}</div>`);
+        output.insertAdjacentHTML("beforeend", `<div class="terminal-prompt">exit ${result.code}</div>`);
+      }
+      output.scrollTop = output.scrollHeight;
+    });
+    $("#browserForm").addEventListener("submit", (event) => {
+      event.preventDefault(); let url = $("#browserUrl").value.trim();
+      if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+      $("#browserUrl").value = url;
+      const view = $("#browserView"); if (typeof view.loadURL === "function") view.loadURL(url); else view.src = url;
+    });
+    $("#browserExternal").addEventListener("click", () => api?.openExternal($("#browserUrl").value));
     $("#approvalSwitch").addEventListener("click", toggleApproval); $("#settingsApproval").addEventListener("click", toggleApproval);
     $("#settingsButton").addEventListener("click", openSettings); $$('[data-close-modal]').forEach((button) => button.addEventListener("click", closeSettings));
     $("#settingsBackdrop").addEventListener("click", (event) => { if (event.target === $("#settingsBackdrop")) closeSettings(); });
@@ -490,6 +728,8 @@
     $("#themeButton").addEventListener("click", () => { state.theme = resolvedTheme() === "dark" ? "light" : "dark"; saveState(); updateLayout(); });
     $("#themeSelect").addEventListener("change", (event) => { state.theme = event.target.value; saveState(); updateLayout(); });
     $("#refreshRuntime").addEventListener("click", detectRuntime); $("#runtimeCard").addEventListener("click", openSettings);
+    $("#discoverModelsButton").addEventListener("click", discoverProviderModels);
+    $("#saveProviderButton").addEventListener("click", saveDiscoveredProvider);
     $("#modelButton").addEventListener("click", (event) => {
       event.stopPropagation();
       openPicker(event.currentTarget, {
@@ -525,11 +765,16 @@
       if (mod && event.key === ",") { event.preventDefault(); openSettings(); }
       if (event.key === "Escape") { closePicker(); closePalette(); closeSettings(); }
     });
-    document.addEventListener("click", (event) => { if (pickerPopover && !pickerPopover.contains(event.target)) closePicker(); });
+    document.addEventListener("click", (event) => {
+      if (pickerPopover && !pickerPopover.contains(event.target)) closePicker();
+      if (!event.target.closest("#dockTabPicker") && !event.target.closest("#dockTabAdd")) $("#dockTabPicker").hidden = true;
+    });
     matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => { if (state.theme === "system") updateLayout(); });
   }
 
   bindStaticActions();
   if (api) api.onRunEvent(handleRunEvent);
-  renderAll(); detectRuntime();
+  renderDockTabPicker();
+  renderAll();
+  (async () => { await loadSavedProviders(); await detectRuntime(); refreshActiveDockPane(); })();
 })();

@@ -5,6 +5,7 @@ const vm = require("node:vm");
 const root = path.resolve(__dirname, "..");
 const required = [
   "main.cjs", "preload.cjs", "package.json", "renderer/index.html",
+  "provider-config.cjs", "scripts/test-providers.cjs",
   "renderer/tokens.css", "renderer/app.css", "renderer/app.js",
   "renderer/assets/GrokSans-Regular.woff2", "renderer/assets/GrokSans-Medium.woff2",
   "renderer/assets/grok-mark.png", "build/icon.png"
@@ -21,10 +22,11 @@ for (const file of ["main.cjs", "preload.cjs", "renderer/app.js", "scripts/serve
 const html = fs.readFileSync(path.join(root, "renderer/index.html"), "utf8");
 const js = fs.readFileSync(path.join(root, "renderer/app.js"), "utf8");
 const css = fs.readFileSync(path.join(root, "renderer/app.css"), "utf8") + fs.readFileSync(path.join(root, "renderer/tokens.css"), "utf8");
+const backend = fs.readFileSync(path.join(root, "main.cjs"), "utf8") + fs.readFileSync(path.join(root, "preload.cjs"), "utf8");
 for (const ref of [...html.matchAll(/(?:href|src)="([^"]+\.(?:css|js|woff2))"/g)].map((match) => match[1])) {
   if (!fs.existsSync(path.join(root, "renderer", ref))) throw new Error(`Broken HTML asset: ${ref}`);
 }
-for (const id of ["messages", "promptInput", "sendButton", "threadList", "activityTimeline", "settingsBackdrop"]) {
+for (const id of ["messages", "promptInput", "sendButton", "threadList", "activityTimeline", "settingsBackdrop", "providerUrl", "discoverModelsButton", "dockTabs", "dockTabAdd", "terminalForm", "browserView", "workspaceFileList"]) {
   if (!html.includes(`id="${id}"`) || !js.includes(`#${id}`)) throw new Error(`UI wiring missing: ${id}`);
 }
 for (const selector of [".app-shell", ".sidebar", ".conversation", ".composer", ".inspector", ".message", ".tool-card"]) {
@@ -33,8 +35,8 @@ for (const selector of [".app-shell", ".sidebar", ".conversation", ".composer", 
 for (const token of ["--accent", "--surface", "--text", "--line", "--shadow-composer"]) {
   if (!css.includes(token)) throw new Error(`Design token missing: ${token}`);
 }
-for (const feature of ["scheduleStreamingRender", "requestAnimationFrame", "openPicker", "picker-popover", "dock-status--workspace", "dock-status--local", "grokLogoShimmer", "assets/grok-mark.png"]) {
-  if (!`${html}\n${js}\n${css}`.includes(feature)) throw new Error(`Desktop interaction missing: ${feature}`);
+for (const feature of ["scheduleStreamingRender", "requestAnimationFrame", "openPicker", "picker-popover", "dock-status--workspace", "dock-status--local", "grokLogoShimmer", "assets/grok-mark.png", "discoverProviderModels", "dock-tabbar", "terminal:run", "workspace:files", "providers:discover"]) {
+  if (!`${html}\n${js}\n${css}\n${backend}`.includes(feature)) throw new Error(`Desktop interaction missing: ${feature}`);
 }
 const iconGenerator = fs.readFileSync(path.join(root, "scripts/generate-icon.py"), "utf8");
 if (!iconGenerator.includes("logo07.txt") || !iconGenerator.includes("logo24.txt") || !iconGenerator.includes("BRAILLE_DOTS")) {
