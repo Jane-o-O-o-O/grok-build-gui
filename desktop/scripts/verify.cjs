@@ -5,7 +5,7 @@ const vm = require("node:vm");
 const root = path.resolve(__dirname, "..");
 const required = [
   "main.cjs", "preload.cjs", "package.json", "renderer/index.html",
-  "provider-config.cjs", "native-config.cjs", "account-info.cjs", "git-workspace.cjs", "cli-runtime.cjs", "scripts/test-providers.cjs", "scripts/test-native-config.cjs", "scripts/test-account-info.cjs", "scripts/test-git-workspace.cjs", "scripts/test-cli-runtime.cjs",
+  "provider-config.cjs", "provider-bridge.cjs", "native-config.cjs", "account-info.cjs", "git-workspace.cjs", "cli-runtime.cjs", "scripts/test-providers.cjs", "scripts/test-provider-bridge.cjs", "scripts/test-native-config.cjs", "scripts/test-account-info.cjs", "scripts/test-git-workspace.cjs", "scripts/test-cli-runtime.cjs",
   "renderer/tokens.css", "renderer/app.css", "renderer/app.js",
   "renderer/assets/GrokSans-Regular.woff2", "renderer/assets/GrokSans-Medium.woff2",
   "renderer/assets/grok-mark.png", "build/icon.png"
@@ -15,7 +15,7 @@ for (const file of required) {
   if (!fs.existsSync(target) || fs.statSync(target).size === 0) throw new Error(`Missing asset: ${file}`);
 }
 
-for (const file of ["main.cjs", "preload.cjs", "native-config.cjs", "account-info.cjs", "git-workspace.cjs", "cli-runtime.cjs", "renderer/app.js", "scripts/serve.cjs"]) {
+for (const file of ["main.cjs", "preload.cjs", "provider-config.cjs", "provider-bridge.cjs", "native-config.cjs", "account-info.cjs", "git-workspace.cjs", "cli-runtime.cjs", "renderer/app.js", "scripts/serve.cjs"]) {
   new vm.Script(fs.readFileSync(path.join(root, file), "utf8"), { filename: file });
 }
 
@@ -35,7 +35,7 @@ for (const selector of [".app-shell", ".sidebar", ".conversation", ".composer", 
 for (const token of ["--accent", "--surface", "--text", "--line", "--shadow-composer"]) {
   if (!css.includes(token)) throw new Error(`Design token missing: ${token}`);
 }
-for (const feature of ["scheduleStreamingRender", "scheduleSideStreamingRender", "requestAnimationFrame", "openPicker", "picker-popover", "dock-status--workspace", "dock-status--local", "grokLogoShimmer", "assets/grok-mark.png", "discoverProviderModels", "nativeSettingGroups", "config:save-raw", "auth:login", "onAuthEvent", "git:info", "switchGitBranch", "branch-popover", "dock-tabbar", "terminal:create", "onTerminalEvent", "side-task-composer", "data-browser-view", "workspace:list", "providers:discover", "startSessionUpdateBridge", "tool_call_update", "toolMessageMarkup", "thinking-block", "permission_requested", "runtime:models", "hydrateRuntimeModels", "settings-search-hit", "settingsSearchCatalog", "integration-detail-modal", "openIntegrationDetail", "slash-popover", "slashCommands", "file-explorer", "file-tree", "pane-resizer", "bindPaneResizer", "applyPaneWidths", "tool-steps", "toolGroupMarkup", "ensureActiveAssistant", "updateTurnProgress", "stream-caret", "agent-mode-picker", "openAgentModePicker", "permissionMode", "buildCliArgs", "streaming-json", "platform-darwin"]) {
+for (const feature of ["scheduleStreamingRender", "scheduleSideStreamingRender", "requestAnimationFrame", "openPicker", "picker-popover", "dock-status--workspace", "dock-status--local", "grokLogoShimmer", "assets/grok-mark.png", "discoverProviderModels", "nativeSettingGroups", "config:save-raw", "auth:login", "onAuthEvent", "git:info", "switchGitBranch", "branch-popover", "dock-tabbar", "terminal:create", "onTerminalEvent", "side-task-composer", "data-browser-view", "workspace:list", "providers:discover", "providers:probe-all", "providers:refresh", "onProviderEvent", "startSessionUpdateBridge", "tool_call_update", "toolMessageMarkup", "thinking-block", "permission_requested", "runtime:models", "hydrateRuntimeModels", "settings-search-hit", "settingsSearchCatalog", "integration-detail-modal", "openIntegrationDetail", "slash-popover", "slashCommands", "file-explorer", "file-tree", "pane-resizer", "bindPaneResizer", "applyPaneWidths", "tool-steps", "toolGroupMarkup", "ensureActiveAssistant", "updateTurnProgress", "stream-caret", "agent-mode-picker", "openAgentModePicker", "permissionMode", "buildCliArgs", "streaming-json", "platform-darwin"]) {
   if (!`${html}\n${js}\n${css}\n${backend}`.includes(feature)) throw new Error(`Desktop interaction missing: ${feature}`);
 }
 for (const removed of ["AcpAgentRun", "agent stdio", "grok:permission-respond", "respondPermission", "handleToolPermission"]) {

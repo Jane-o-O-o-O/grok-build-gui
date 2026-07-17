@@ -4,12 +4,16 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { buildCliArgs, effectivePrompt } = require("./cli-runtime.cjs");
+const { createProviderBridge } = require("./provider-bridge.cjs");
 const {
   discoverModels,
   makeProviderId,
   makeEnvKey,
-  makeLocalModelId,
-  mergeManagedConfig
+  mergeDiscoveredProviderModels,
+  mergeManagedConfig,
+  normalizeProviderModelIds,
+  probeModelTools,
+  TOOL_PROBE_VERSION
 } = require("./provider-config.cjs");
 const {
   readNativeConfig,
@@ -23,10 +27,12 @@ const activeRuns = new Map();
 const runClients = new Map();
 const terminalSessions = new Map();
 const sessionUpdateBridges = new Map();
+const activeProviderOperations = new Set();
 let mainWindow;
 let activeAuthRun = null;
 let activeAuthUrl = null;
 let cachedSystemProxyEnvironment = {};
+let providerBridge = null;
 
 function localNoProxy(existing = "") {
   return [...new Set([...String(existing || "").split(",").map((item) => item.trim()).filter(Boolean), "localhost", "127.0.0.1", "::1", "[::1]"])].join(",");
@@ -118,13 +124,18 @@ function integrationSummary(raw) {
   };
 }
 
-function loadProviderStore() {
+function readProviderStore() {
   try {
     const value = JSON.parse(fs.readFileSync(providerStorePath(), "utf8"));
     return { providers: Array.isArray(value.providers) ? value.providers : [] };
   } catch {
     return { providers: [] };
   }
+}
+
+function loadProviderStore() {
+  const store = readProviderStore();
+  return { ...store, providers: normalizeProviderModelIds(store.providers) };
 }
 
 function encryptApiKey(value) {
@@ -171,13 +182,116 @@ function publicProviders(store = loadProviderStore()) {
   }));
 }
 
-function persistProviderStore(store) {
+function persistProviderStore(store, { useBridge = true } = {}) {
+  const normalized = { ...store, providers: normalizeProviderModelIds(store.providers) };
   fs.mkdirSync(path.dirname(providerStorePath()), { recursive: true });
-  fs.writeFileSync(providerStorePath(), `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  fs.writeFileSync(providerStorePath(), `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
   const configPath = grokConfigPath();
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   const existing = fs.existsSync(configPath) ? fs.readFileSync(configPath, "utf8") : "";
-  fs.writeFileSync(configPath, mergeManagedConfig(existing, store.providers), "utf8");
+  const runtimeProviders = normalized.providers.map((provider) => ({
+    ...provider,
+    models: provider.models.map((model) => ({
+      ...model,
+      runtimeBaseUrl: useBridge && providerBridge
+        ? providerBridge.baseUrlFor(provider.id)
+        : provider.baseUrl
+    }))
+  }));
+  fs.writeFileSync(configPath, mergeManagedConfig(existing, runtimeProviders), "utf8");
+  return normalized;
+}
+
+function migrateProviderStore() {
+  if (!fs.existsSync(providerStorePath())) return;
+  const stored = readProviderStore();
+  const normalized = { ...stored, providers: normalizeProviderModelIds(stored.providers) };
+  persistProviderStore(normalized);
+}
+
+async function probeStoredModel(providerId, modelId) {
+  const store = loadProviderStore();
+  const provider = store.providers.find((item) => item.id === providerId);
+  const model = provider?.models?.find((item) => item.localId === modelId || item.id === modelId);
+  if (!provider || !model) throw new Error("没有找到要检测的第三方模型");
+  const apiKey = decryptApiKey(provider.secret);
+  const result = await probeModelTools({
+    baseUrl: provider.baseUrl,
+    apiKey,
+    protocol: provider.protocol,
+    model: model.id,
+    name: model.name
+  }, (input, init) => session.defaultSession.fetch(input, init));
+  Object.assign(model, result, { toolCapabilityCheckedAt: Date.now() });
+  persistProviderStore(store);
+  return result;
+}
+
+async function ensureModelCompatibility(modelId) {
+  if (!modelId || modelId === "auto") return null;
+  const store = loadProviderStore();
+  const provider = store.providers.find((item) => item.models?.some((model) => model.localId === modelId));
+  const model = provider?.models?.find((item) => item.localId === modelId);
+  if (!provider || !model || (model.toolCapability !== "unknown" && model.toolProbeVersion === TOOL_PROBE_VERSION)) return model || null;
+  try {
+    const result = await probeStoredModel(provider.id, model.localId);
+    return { ...model, ...result, compatibilityChecked: true };
+  } catch (error) {
+    return { ...model, toolCapabilityDetail: `自动检测失败：${error.message}`, compatibilityChecked: true };
+  }
+}
+
+async function refreshStoredProvider(providerId) {
+  const store = loadProviderStore();
+  const provider = store.providers.find((item) => item.id === providerId);
+  if (!provider) throw new Error("没有找到要刷新的第三方模型源");
+  const apiKey = decryptApiKey(provider.secret);
+  if (!apiKey) throw new Error("无法读取该模型源的 API 密钥");
+  const previousIds = new Set(provider.models.map((model) => model.id));
+  const discovered = await discoverModels({ baseUrl: provider.baseUrl, apiKey }, (input, init) => session.defaultSession.fetch(input, init));
+  const nextIds = new Set(discovered.models.map((model) => model.id));
+  provider.baseUrl = discovered.baseUrl;
+  provider.protocol = discovered.protocol;
+  provider.models = mergeDiscoveredProviderModels(discovered.models, provider.models);
+  provider.updatedAt = Date.now();
+  const saved = persistProviderStore(store);
+  return {
+    providers: publicProviders(saved),
+    stats: {
+      total: discovered.models.length,
+      added: [...nextIds].filter((id) => !previousIds.has(id)).length,
+      removed: [...previousIds].filter((id) => !nextIds.has(id)).length
+    }
+  };
+}
+
+async function probeAllStoredModels(providerId, onProgress) {
+  const store = loadProviderStore();
+  const provider = store.providers.find((item) => item.id === providerId);
+  if (!provider) throw new Error("没有找到要检测的第三方模型源");
+  const apiKey = decryptApiKey(provider.secret);
+  if (!apiKey) throw new Error("无法读取该模型源的 API 密钥");
+  const models = provider.models || [];
+  let cursor = 0;
+  let completed = 0;
+  const worker = async () => {
+    while (cursor < models.length) {
+      const model = models[cursor++];
+      let result;
+      try {
+        result = await probeModelTools({ baseUrl: provider.baseUrl, apiKey, protocol: provider.protocol, model: model.id, name: model.name }, (input, init) => session.defaultSession.fetch(input, init));
+      } catch (error) {
+        result = { toolCapability: "unknown", toolCapabilityDetail: `检测失败：${error.message}`, streamToolCalls: false };
+      }
+      Object.assign(model, result, { toolCapabilityCheckedAt: Date.now() });
+      completed += 1;
+      if (completed % 5 === 0) persistProviderStore(store);
+      onProgress?.({ providerId, completed, total: models.length, modelId: model.localId, result });
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(2, Math.max(1, models.length)) }, worker));
+  const saved = persistProviderStore(store);
+  return { providers: publicProviders(saved), completed, total: models.length };
 }
 
 function locateGrok() {
@@ -550,6 +664,43 @@ ipcMain.handle("providers:discover", async (_event, payload) => {
   }
 });
 
+ipcMain.handle("providers:probe", async (_event, payload) => {
+  try {
+    if (payload?.providerId) return { ok: true, result: await probeStoredModel(payload.providerId, payload.model) };
+    const result = await probeModelTools(payload || {}, (input, init) => session.defaultSession.fetch(input, init));
+    return { ok: true, result };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle("providers:probe-all", async (event, providerId) => {
+  if (activeProviderOperations.has(providerId)) return { ok: false, error: "该模型源已有操作正在进行" };
+  activeProviderOperations.add(providerId);
+  try {
+    const result = await probeAllStoredModels(providerId, (progress) => {
+      if (!event.sender.isDestroyed()) event.sender.send("providers:event", { type: "probe-progress", ...progress });
+    });
+    return { ok: true, ...result };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  } finally {
+    activeProviderOperations.delete(providerId);
+  }
+});
+
+ipcMain.handle("providers:refresh", async (_event, providerId) => {
+  if (activeProviderOperations.has(providerId)) return { ok: false, error: "该模型源已有操作正在进行" };
+  activeProviderOperations.add(providerId);
+  try {
+    return { ok: true, ...(await refreshStoredProvider(providerId)) };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  } finally {
+    activeProviderOperations.delete(providerId);
+  }
+});
+
 ipcMain.handle("providers:save", async (_event, payload) => {
   try {
     if (!payload || !Array.isArray(payload.models) || !payload.models.length) throw new Error("请至少选择一个模型");
@@ -570,14 +721,19 @@ ipcMain.handle("providers:save", async (_event, payload) => {
         name: String(model.name || model.id),
         contextWindow: Number(model.contextWindow) || null,
         maxOutput: Number(model.maxOutput) || null,
-        localId: previous?.models?.find((item) => item.id === model.id)?.localId || makeLocalModelId(providerId, model.id)
+        toolCapability: model.toolCapability,
+        toolCapabilityDetail: model.toolCapabilityDetail,
+        toolCapabilityCheckedAt: Number(model.toolCapabilityCheckedAt) || null,
+        toolProbeVersion: Number(model.toolProbeVersion) || null,
+        apiBackend: model.apiBackend,
+        streamToolCalls: false
       })),
       updatedAt: Date.now()
     };
     const index = store.providers.findIndex((item) => item.id === providerId);
     if (index >= 0) store.providers[index] = provider; else store.providers.push(provider);
-    persistProviderStore(store);
-    return { ok: true, providers: publicProviders(store) };
+    const saved = persistProviderStore(store);
+    return { ok: true, providers: publicProviders(saved) };
   } catch (error) {
     return { ok: false, error: error.message };
   }
@@ -586,8 +742,7 @@ ipcMain.handle("providers:save", async (_event, payload) => {
 ipcMain.handle("providers:remove", async (_event, providerId) => {
   const store = loadProviderStore();
   store.providers = store.providers.filter((provider) => provider.id !== providerId);
-  persistProviderStore(store);
-  return publicProviders(store);
+  return publicProviders(persistProviderStore(store));
 });
 
 ipcMain.handle("dialog:workspace", async () => {
@@ -789,6 +944,8 @@ ipcMain.handle("grok:prompt", async (_event, payload) => {
   }
   if (!validWorkspace(payload.cwd)) return { ok: false, error: "Workspace path does not exist." };
 
+  const compatibility = await ensureModelCompatibility(payload.model);
+
   const runId = crypto.randomUUID();
   const launchSessionId = payload.sessionId || crypto.randomUUID();
   runClients.set(runId, String(payload.clientId || "main"));
@@ -817,7 +974,7 @@ ipcMain.handle("grok:prompt", async (_event, payload) => {
     activeRuns.delete(runId);
     setTimeout(() => runClients.delete(runId), 1_200);
   });
-  return { ok: true, runId };
+  return { ok: true, runId, compatibility };
 });
 
 ipcMain.handle("grok:cancel", async (_event, runId) => {
@@ -877,6 +1034,20 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  try {
+    providerBridge = createProviderBridge({
+      resolveProvider(providerId) {
+        const provider = loadProviderStore().providers.find((item) => item.id === providerId);
+        return provider ? { provider, apiKey: decryptApiKey(provider.secret) } : null;
+      },
+      fetchImpl: (input, init) => session.defaultSession.fetch(input, init)
+    });
+    await providerBridge.start();
+  } catch (error) {
+    providerBridge = null;
+    console.error(`Provider bridge failed to start: ${error.message}`);
+  }
+  migrateProviderStore();
   await refreshSystemProxyEnvironment("https://auth.x.ai/.well-known/openid-configuration");
   createWindow();
 });
@@ -886,6 +1057,10 @@ app.on("window-all-closed", () => {
   for (const terminalId of [...terminalSessions.keys()]) closeTerminalSession(terminalId);
   if (activeAuthRun) { activeAuthRun.kill(); activeAuthRun = null; activeAuthUrl = null; }
   if (process.platform !== "darwin") app.quit();
+});
+app.on("before-quit", () => {
+  if (fs.existsSync(providerStorePath())) persistProviderStore(loadProviderStore(), { useBridge: false });
+  providerBridge?.stop();
 });
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();

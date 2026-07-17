@@ -235,7 +235,7 @@
             <section class="settings-panel" data-settings-panel="models" hidden>
               <div class="settings-panel__heading"><h3>模型</h3><p>设置原生默认模型，并发现 OpenAI 或 Anthropic 兼容服务。</p></div>
               <div id="nativeModelSettings"></div>
-              <div class="settings-section-label"><span>第三方模型</span><small>自动识别 OpenAI / Anthropic 协议</small></div>
+              <div class="settings-section-label"><span>第三方模型</span><small>自动识别协议并检测 Grok CLI 工具兼容性</small></div>
               <div class="provider-form"><label><span>API URL</span><input id="providerUrl" type="url" placeholder="https://api.example.com/v1" spellcheck="false"/></label><label><span>API 密钥</span><input id="providerKey" type="password" placeholder="输入密钥，仅保存在本机" autocomplete="new-password"/></label><div class="provider-form__actions"><span class="provider-detect-status" id="providerDetectStatus">填写连接信息后发现模型</span><button class="secondary-button" id="discoverModelsButton"><svg><use href="#i-search"/></svg>发现模型</button></div></div>
               <div class="discovered-models" id="discoveredModels" hidden></div><div class="provider-save-row" id="providerSaveRow" hidden><span id="providerSelectionCount">已选择 0 个模型</span><button class="primary-button" id="saveProviderButton">保存所选模型</button></div><div class="saved-providers" id="savedProviders"></div>
             </section>

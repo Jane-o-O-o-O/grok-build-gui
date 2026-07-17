@@ -16,6 +16,9 @@ contextBridge.exposeInMainWorld("grokDesktop", {
   logout: () => ipcRenderer.invoke("auth:logout"),
   listProviders: () => ipcRenderer.invoke("providers:list"),
   discoverProviderModels: (payload) => ipcRenderer.invoke("providers:discover", payload),
+  probeProviderModel: (payload) => ipcRenderer.invoke("providers:probe", payload),
+  probeAllProviderModels: (providerId) => ipcRenderer.invoke("providers:probe-all", providerId),
+  refreshProviderModels: (providerId) => ipcRenderer.invoke("providers:refresh", providerId),
   saveProvider: (payload) => ipcRenderer.invoke("providers:save", payload),
   removeProvider: (providerId) => ipcRenderer.invoke("providers:remove", providerId),
   pickWorkspace: () => ipcRenderer.invoke("dialog:workspace"),
@@ -55,6 +58,15 @@ contextBridge.exposeInMainWorld("grokDesktop", {
     ipcRenderer.on("auth:event", wrapped);
     return () => {
       ipcRenderer.removeListener("auth:event", wrapped);
+      listeners.delete(callback);
+    };
+  },
+  onProviderEvent: (callback) => {
+    const wrapped = (_event, data) => callback(data);
+    listeners.set(callback, wrapped);
+    ipcRenderer.on("providers:event", wrapped);
+    return () => {
+      ipcRenderer.removeListener("providers:event", wrapped);
       listeners.delete(callback);
     };
   },

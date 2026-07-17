@@ -52,6 +52,7 @@
   let pickerPopover = null;
   let providerDiscovery = null;
   let savedProviders = [];
+  const providerOperations = new Map();
   let nativeConfig = { values: {}, raw: "", path: "~/.grok/config.toml", integrations: {} };
   let authState = { signedIn: false, name: "登录 Grok" };
   let authPollTimer = null;
@@ -1241,6 +1242,7 @@
     const sharedPrompt = `你正在 Grok Build 的侧边对话中并行处理任务。使用同一项目记忆，并参考下面主对话的最新上下文；直接完成侧边任务。\n\n<主对话最新上下文>\n${mainConversationContext()}\n</主对话最新上下文>\n\n<侧边任务>\n${prompt}\n</侧边任务>`;
     const result = await api.sendPrompt({ clientId: tab.id, prompt: sharedPrompt, cwd: tab.cwd || state.cwd, sessionId: tab.sessionId, model: state.model, effort: state.effort, permissionMode: state.permissionMode, attachments: [] });
     if (!result.ok) { assistant.text = `启动 Grok 时出现问题：${result.error}`; finishSideTask(tab, "启动失败"); return; }
+    if (result.compatibility?.compatibilityChecked) { applyModelCompatibility(result.compatibility); toast("模型工具能力已检测", result.compatibility.toolCapabilityDetail || "已更新第三方模型兼容配置"); }
     tab.runId = result.runId; renderSideTaskPane(tab, pane); saveState();
   }
 
@@ -1779,6 +1781,7 @@
     }
     const result = await api.sendPrompt({ clientId: "main", prompt, cwd: thread.cwd || state.cwd, sessionId: thread.sessionId, model: state.model, effort: state.effort, permissionMode: state.permissionMode, attachments: state.attachments });
     if (!result.ok) { activeAssistantMessage.text = `启动 Grok 时出现问题：${result.error}`; toast("Runtime 错误", result.error); finishRun("启动失败"); renderMessages(); return; }
+    if (result.compatibility?.compatibilityChecked) { applyModelCompatibility(result.compatibility); toast("模型工具能力已检测", result.compatibility.toolCapabilityDetail || "已更新第三方模型兼容配置"); }
     activeRun = result.runId;
     state.attachments = [];
     renderAttachments();
@@ -2239,14 +2242,47 @@
       id: model.localId,
       label: model.name || model.id,
       provider: provider.name,
-      protocol: provider.protocol
+      protocol: provider.protocol,
+      description: model.toolCapabilityDetail || `${provider.name} · ${model.id}`,
+      badge: toolCapabilityMeta(model.toolCapability).label
     })));
+  }
+
+  function applyModelCompatibility(compatibility) {
+    if (!compatibility?.localId) return;
+    for (const provider of savedProviders) {
+      const model = provider.models?.find((item) => item.localId === compatibility.localId);
+      if (model) Object.assign(model, compatibility);
+    }
+    mergeProviderModels();
+    if (!$("#settingsBackdrop").hidden) renderSavedProviders();
+  }
+
+  function toolCapabilityMeta(capability) {
+    if (capability === "native") return { label: "原生工具", className: "is-native" };
+    if (capability === "bridge") return { label: "兼容桥", className: "is-bridge" };
+    if (capability === "unsupported") return { label: "非 Agent", className: "is-unsupported" };
+    if (capability === "checking") return { label: "检测中", className: "is-checking" };
+    return { label: "未检测", className: "is-unknown" };
+  }
+
+  function providerCapabilitySummary(provider) {
+    const counts = { native: 0, bridge: 0, unsupported: 0, unknown: 0 };
+    for (const model of provider.models || []) counts[model.toolCapability in counts ? model.toolCapability : "unknown"] += 1;
+    const parts = [];
+    if (counts.native) parts.push(`${counts.native} 原生`);
+    if (counts.bridge) parts.push(`${counts.bridge} 桥接`);
+    if (counts.unknown) parts.push(`${counts.unknown} 未检测`);
+    if (counts.unsupported) parts.push(`${counts.unsupported} 非 Agent`);
+    return parts.join(" · ");
   }
 
   function mergeProviderModels() {
     const local = providerModelOptions();
+    const localById = new Map(local.map((model) => [model.id, model]));
+    runtimeModels = runtimeModels.map((model) => localById.has(model.id) ? { ...model, ...localById.get(model.id) } : model);
     const ids = new Set(runtimeModels.map((item) => item.id));
-    for (const model of local) if (!ids.has(model.id)) runtimeModels.push(model);
+    for (const model of local) if (!ids.has(model.id)) { runtimeModels.push(model); ids.add(model.id); }
     if (!runtimeModels.some((item) => item.id === state.model)) {
       state.model = "auto";
       state.modelLabel = runtimeModels[0]?.label || "自动模型";
@@ -2266,13 +2302,69 @@
       target.innerHTML = '<div class="context-empty"><span>还没有第三方模型服务</span></div>';
       return;
     }
-    target.innerHTML = savedProviders.map((provider) => `<div class="saved-provider"><span class="saved-provider__protocol">${provider.protocol === "anthropic" ? "ANTH" : "OAI"}</span><span><b>${escapeHtml(provider.name)}</b><small>${escapeHtml(provider.baseUrl)} · ${provider.models.length} 个模型${provider.keyProtected ? " · 系统加密" : ""}</small></span><button class="icon-button" data-remove-provider="${provider.id}" title="移除"><svg><use href="#i-trash"/></svg></button></div>`).join("");
+    target.innerHTML = savedProviders.map((provider) => {
+      const operation = providerOperations.get(provider.id);
+      const detail = operation?.type === "probe"
+        ? `正在检测 ${operation.completed || 0}/${operation.total || provider.models.length}`
+        : operation?.type === "refresh" ? "正在刷新模型列表" : `${provider.models.length} 个模型 · ${providerCapabilitySummary(provider)}`;
+      return `<div class="saved-provider"><span class="saved-provider__protocol">${provider.protocol === "anthropic" ? "ANTH" : "OAI"}</span><span><b>${escapeHtml(provider.name)}</b><small>${escapeHtml(provider.baseUrl)} · ${escapeHtml(detail)}${provider.keyProtected ? " · 系统加密" : ""}</small></span><span class="saved-provider__actions"><button class="icon-button ${operation?.type === "probe" ? "is-busy" : ""}" data-probe-provider="${provider.id}" title="批量检测工具兼容性" ${operation ? "disabled" : ""}><svg><use href="#i-check"/></svg></button><button class="icon-button ${operation?.type === "refresh" ? "is-busy" : ""}" data-refresh-provider="${provider.id}" title="重新刷新模型列表" ${operation ? "disabled" : ""}><svg><use href="#i-refresh"/></svg></button><button class="icon-button" data-remove-provider="${provider.id}" title="移除" ${operation ? "disabled" : ""}><svg><use href="#i-trash"/></svg></button></span></div>`;
+    }).join("");
+    $$('[data-probe-provider]').forEach((button) => button.addEventListener("click", () => batchProbeProvider(button.dataset.probeProvider)));
+    $$('[data-refresh-provider]').forEach((button) => button.addEventListener("click", () => refreshProviderModels(button.dataset.refreshProvider)));
     $$('[data-remove-provider]').forEach((button) => button.addEventListener("click", async () => {
+      const removedModelIds = new Set(savedProviders.find((provider) => provider.id === button.dataset.removeProvider)?.models?.map((model) => model.localId) || []);
       savedProviders = api ? await api.removeProvider(button.dataset.removeProvider) : [];
-      runtimeModels = runtimeModels.filter((item) => !String(item.id).startsWith(`desktop-${button.dataset.removeProvider.replace(/^provider-/, "provider")}`));
+      runtimeModels = runtimeModels.filter((item) => !removedModelIds.has(item.id));
       renderSavedProviders(); mergeProviderModels(); await detectRuntime({ waitForModels: true });
       toast("模型服务已移除", "Grok 配置已同步更新");
     }));
+  }
+
+  async function batchProbeProvider(providerId) {
+    const provider = savedProviders.find((item) => item.id === providerId);
+    if (!provider || !api) return;
+    if (!window.confirm(`将检测 ${provider.models.length} 个模型的工具兼容性，过程中可能产生少量 API 费用。是否继续？`)) return;
+    providerOperations.set(providerId, { type: "probe", completed: 0, total: provider.models.length });
+    renderSavedProviders();
+    const result = await api.probeAllProviderModels(providerId);
+    providerOperations.delete(providerId);
+    if (!result.ok) {
+      renderSavedProviders();
+      toast("批量检测失败", result.error);
+      return;
+    }
+    savedProviders = result.providers;
+    renderSavedProviders(); mergeProviderModels(); await detectRuntime({ waitForModels: true });
+    toast("批量检测完成", `${result.completed}/${result.total} 个模型已更新工具兼容状态`);
+  }
+
+  async function refreshProviderModels(providerId) {
+    const provider = savedProviders.find((item) => item.id === providerId);
+    if (!provider || !api) return;
+    providerOperations.set(providerId, { type: "refresh" });
+    renderSavedProviders();
+    const result = await api.refreshProviderModels(providerId);
+    providerOperations.delete(providerId);
+    if (!result.ok) {
+      renderSavedProviders();
+      toast("模型刷新失败", result.error);
+      return;
+    }
+    savedProviders = result.providers;
+    renderSavedProviders(); await detectRuntime({ waitForModels: true }); mergeProviderModels();
+    toast("模型列表已刷新", `共 ${result.stats.total} 个，新增 ${result.stats.added} 个，移除 ${result.stats.removed} 个`);
+  }
+
+  function handleProviderEvent(event) {
+    if (event?.type !== "probe-progress") return;
+    const operation = providerOperations.get(event.providerId);
+    if (!operation) return;
+    operation.completed = event.completed;
+    operation.total = event.total;
+    const provider = savedProviders.find((item) => item.id === event.providerId);
+    const model = provider?.models?.find((item) => item.localId === event.modelId);
+    if (model && event.result) Object.assign(model, event.result);
+    renderSavedProviders();
   }
 
   async function discoverProviderModels() {
@@ -2300,12 +2392,40 @@
     const target = $("#discoveredModels");
     if (!providerDiscovery) { target.hidden = true; return; }
     target.hidden = false;
-    target.innerHTML = providerDiscovery.models.map((model) => `<label class="discovered-model"><input type="checkbox" data-discovered-model="${escapeHtml(model.id)}" ${providerDiscovery.selected.has(model.id) ? "checked" : ""}/><span><b>${escapeHtml(model.name || model.id)}</b><small>${escapeHtml(model.id)}${model.owner ? ` · ${escapeHtml(model.owner)}` : ""}</small></span></label>`).join("");
+    target.innerHTML = providerDiscovery.models.map((model) => {
+      const capability = toolCapabilityMeta(model.toolCapability);
+      return `<div class="discovered-model"><input type="checkbox" data-discovered-model="${escapeHtml(model.id)}" ${providerDiscovery.selected.has(model.id) ? "checked" : ""}/><span><b>${escapeHtml(model.name || model.id)}</b><small>${escapeHtml(model.id)}${model.owner ? ` · ${escapeHtml(model.owner)}` : ""}${model.toolCapabilityDetail ? ` · ${escapeHtml(model.toolCapabilityDetail)}` : ""}</small></span><em class="discovered-model__capability ${capability.className}">${capability.label}</em><button class="icon-button discovered-model__probe ${model.toolCapability === "checking" ? "is-busy" : ""}" data-probe-model="${escapeHtml(model.id)}" title="检测工具兼容性" ${model.toolCapability === "checking" || model.toolCapability === "unsupported" ? "disabled" : ""}><svg><use href="#i-refresh"/></svg></button></div>`;
+    }).join("");
     $$('[data-discovered-model]').forEach((input) => input.addEventListener("change", () => {
       input.checked ? providerDiscovery.selected.add(input.dataset.discoveredModel) : providerDiscovery.selected.delete(input.dataset.discoveredModel);
       updateProviderSelection();
     }));
+    $$('[data-probe-model]').forEach((button) => button.addEventListener("click", () => probeDiscoveredModel(button.dataset.probeModel)));
     $("#providerSaveRow").hidden = false; updateProviderSelection();
+  }
+
+  async function probeDiscoveredModel(modelId) {
+    const model = providerDiscovery?.models?.find((item) => item.id === modelId);
+    if (!model || !api) return;
+    model.toolCapability = "checking";
+    model.toolCapabilityDetail = "正在验证工具调用协议";
+    renderDiscoveredModels();
+    const response = await api.probeProviderModel({
+      baseUrl: providerDiscovery.baseUrl,
+      apiKey: providerDiscovery.apiKey,
+      protocol: providerDiscovery.protocol,
+      model: model.id,
+      name: model.name
+    });
+    if (!response.ok) {
+      model.toolCapability = "unknown";
+      model.toolCapabilityDetail = response.error;
+      toast("工具检测失败", response.error);
+    } else {
+      Object.assign(model, response.result, { toolCapabilityCheckedAt: Date.now() });
+      toast("工具检测完成", `${model.name || model.id} · ${response.result.toolCapabilityDetail}`);
+    }
+    renderDiscoveredModels();
   }
 
   function updateProviderSelection() {
@@ -2674,7 +2794,7 @@
       openPicker(event.currentTarget, {
         scrollable: true,
         selected: state.model,
-        items: runtimeModels.map((item, index) => ({ ...item, description: item.id === "auto" ? "跟随 Grok Runtime 的默认模型" : "固定使用这个模型处理后续任务", badge: index === 0 ? "推荐" : "" })),
+        items: runtimeModels.map((item, index) => ({ ...item, description: item.id === "auto" ? "跟随 Grok Runtime 的默认模型" : (item.description || "固定使用这个模型处理后续任务"), badge: index === 0 ? "推荐" : (item.badge || "") })),
         onSelect: (item) => { state.model = item.id; state.modelLabel = item.label; saveState(); updateWorkspace(); toast("模型已切换", item.label); }
       });
     });
@@ -2719,6 +2839,7 @@
 
   bindStaticActions();
   if (api) api.onRunEvent(handleRunEvent);
+  if (api) api.onProviderEvent(handleProviderEvent);
   if (api) api.onTerminalEvent((event) => {
     const tab = state.dockTabs.find((item) => item.type === "terminal" && item.id === event.terminalId);
     if (!tab) return;

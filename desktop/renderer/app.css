@@ -511,13 +511,19 @@ button.dock-status:hover { border-color: var(--line-accent); background: var(--s
 .provider-detect-status.is-error { color: var(--bad); }
 .discovered-models { margin: 0 20px; max-height: 230px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
 .discovered-models[hidden], .provider-save-row[hidden] { display: none; }
-.discovered-model { min-height: 46px; display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.discovered-model { min-height: 46px; display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--line); }
 .discovered-model:last-child { border-bottom: 0; }
 .discovered-model:hover { background: var(--surface-hover); }
 .discovered-model input { accent-color: var(--accent); }
 .discovered-model > span { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 .discovered-model b { overflow: hidden; color: var(--text); font: 10px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .discovered-model small { color: var(--text-3); font-size: 8px; }
+.discovered-model__capability { flex: none; padding: 3px 5px; border: 1px solid var(--line); border-radius: 5px; color: var(--text-3); font: 8px var(--font-mono); }
+.discovered-model__capability.is-native { border-color: color-mix(in srgb, var(--good) 38%, var(--line)); color: var(--good); }
+.discovered-model__capability.is-bridge { border-color: color-mix(in srgb, var(--accent) 38%, var(--line)); color: var(--accent); }
+.discovered-model__capability.is-unsupported { color: var(--bad); }
+.discovered-model__probe { width: 27px; height: 27px; }
+.discovered-model__probe.is-busy svg { animation: spin .8s linear infinite; }
 .provider-save-row { margin: 8px 20px 14px; display: flex; align-items: center; justify-content: space-between; }
 .provider-save-row span { color: var(--text-3); font-size: 9px; }
 .saved-providers { padding: 0 20px 10px; }
@@ -526,7 +532,9 @@ button.dock-status:hover { border-color: var(--line-accent); background: var(--s
 .saved-provider > span:nth-child(2) { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 .saved-provider b { overflow: hidden; font-size: 10px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .saved-provider small { overflow: hidden; color: var(--text-3); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
-.saved-provider button { flex: none; }
+.saved-provider__actions { flex: none; display: flex; align-items: center; gap: 4px; }
+.saved-provider__actions .icon-button { width: 27px; height: 27px; }
+.saved-provider__actions .is-busy svg { animation: spin .8s linear infinite; }
 
 .picker-popover { position: fixed; z-index: 120; width: max-content; min-width: 112px; height: fit-content; display: block; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface-float); box-shadow: var(--shadow-float); backdrop-filter: blur(24px) saturate(1.2); animation: pickerIn .22s var(--ease-out) both; }
 .picker-popover--menu { width: 280px; max-height: min(300px, calc(100vh - 24px)); display: flex; }
