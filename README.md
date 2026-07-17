@@ -1,35 +1,45 @@
 <div align="center">
 
-<img src="desktop/build/icon.png" width="112" alt="Grok Build GUI icon" />
+<img src="desktop/build/icon.png" width="112" alt="Grok Build GUI — desktop GUI for Grok Build AI coding agent" />
 
 # Grok Build GUI
 
-**为 Grok Build 原生 TUI Runtime 打造的桌面 AI 编程工作区**
+**Grok Build desktop GUI · Electron AI coding workspace for the official `grok` / Grok Build TUI runtime**
 
-稳定流式对话 · 原生配置中心 · Grok 账号登录 · 第三方模型发现 · 多标签开发工作台
+稳定流式对话 · Agent 工具审批 · 原生配置中心 · Grok 账号登录 · 第三方模型 · 多标签开发工作台
 
 [![Windows](https://img.shields.io/badge/Windows-verified-111827?logo=windows11&logoColor=white)](#快速开始)
 [![Electron](https://img.shields.io/badge/Electron-37-17202A?logo=electron&logoColor=5EE7F7)](desktop/)
-[![Grok Runtime](https://img.shields.io/badge/Grok_Runtime-native-111111)](crates/codegen/xai-grok-pager/)
+[![Grok Build](https://img.shields.io/badge/Grok_Build-desktop_GUI-111111)](#项目简介)
+[![Grok Runtime](https://img.shields.io/badge/grok-native_runtime-0B7A75)](crates/codegen/xai-grok-pager/)
 [![OpenAI Compatible](https://img.shields.io/badge/OpenAI-compatible-0B7A75?logo=openai&logoColor=white)](#第三方模型)
 [![Anthropic](https://img.shields.io/badge/Anthropic-Messages-C96F4A)](#第三方模型)
 [![License](https://img.shields.io/badge/License-Apache--2.0-3B82F6)](LICENSE)
+[![Topics](https://img.shields.io/badge/topics-grok--build%20·%20electron%20·%20ai--agent-3B82F6)](#keywords--discoverability)
 
 [快速开始](#快速开始) · [功能总览](#功能总览) · [原生设置中心](#原生设置中心) · [第三方模型](#第三方模型) · [右侧工作台](#右侧多标签工作台) · [开发与验证](#开发与验证)
 
-<img src="desktop/docs/grok-desktop-dark.png" width="100%" alt="Grok Build GUI main workspace" />
+<img src="desktop/docs/grok-desktop-dark.png" width="100%" alt="Grok Build GUI main workspace — Grok Build desktop Electron app" />
 
 </div>
 
 ---
 
+## Keywords / Discoverability
+
+Search-friendly terms for this repository (also mirrored in GitHub **About** topics):
+
+`grok-build` · `grok-build-gui` · `grok` · `xai` · `grok desktop` · `grok tui` · `electron` · `ai coding agent` · `ai agent desktop` · `agent client protocol` · `acp` · `openai compatible` · `anthropic` · `mcp` · `developer tools` · `windows`
+
+---
+
 ## 项目简介
 
-Grok Build GUI 是 Grok Build 原生 Rust CLI/TUI 的桌面入口。桌面端通过 `streaming-json` 接入现有 Agent Runtime，继续使用原生模型、工具、权限、MCP、Skills、Plugins、Hooks、Memory、Worktree 与认证系统，同时提供更适合桌面开发的可视化交互。
+**Grok Build GUI**（仓库名：`grok-build-gui`）是面向 **Grok Build** / 官方 `grok` CLI·TUI Runtime 的桌面 GUI。它用 Electron 提供可视化 AI 编程工作区：流式对话、工具调用与审批、Git/文件工作台，并继续复用原生模型、权限、MCP、Skills、Plugins、Hooks、Memory、Worktree 与认证，而不是另起一套 Agent。
 
 它不是一套与 TUI 分离的 Agent 实现：
 
-- 对话由原生 `grok` Runtime 执行；
+- 对话由原生 `grok` Runtime 执行（含 `grok agent stdio` / ACP）；
 - 多轮会话通过原生 `sessionId` 续接；
 - 设置直接读写 `~/.grok/config.toml`；
 - 账号信息来自原生 `~/.grok/auth.json`；
