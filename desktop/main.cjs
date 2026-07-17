@@ -636,6 +636,30 @@ ipcMain.handle("workspace:review", async (_event, cwd) => {
   return { ok: true, files, stat: (stat.stdout || "").trim(), clean: files.length === 0 };
 });
 
+ipcMain.handle("workspace:list", async (_event, { cwd, dir = "" }) => {
+  if (!validWorkspace(cwd)) return { ok: false, error: "工作区不存在" };
+  const ignored = new Set(["node_modules", "target", "dist", ".idea", ".vscode"]);
+  const base = path.resolve(cwd);
+  const target = path.resolve(cwd, String(dir || "."));
+  const relativeRoot = path.relative(base, target);
+  if (relativeRoot.startsWith("..") || path.isAbsolute(relativeRoot)) return { ok: false, error: "目录超出工作区" };
+  try {
+    const entries = fs.readdirSync(target, { withFileTypes: true })
+      .filter((entry) => !ignored.has(entry.name) && !entry.name.startsWith(".preview-"))
+      .map((entry) => {
+        const absolute = path.join(target, entry.name);
+        const relative = path.relative(base, absolute).replace(/\\/g, "/");
+        let size = 0;
+        try { if (entry.isFile()) size = fs.statSync(absolute).size; } catch {}
+        return { name: entry.name, path: relative, type: entry.isDirectory() ? "dir" : "file", size };
+      })
+      .sort((a, b) => Number(a.type === "file") - Number(b.type === "file") || a.name.localeCompare(b.name));
+    return { ok: true, dir: relativeRoot.replace(/\\/g, "/") || "", entries };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
 ipcMain.handle("workspace:files", async (_event, cwd) => {
   if (!validWorkspace(cwd)) return { ok: false, error: "工作区不存在" };
   const ignored = new Set([".git", "node_modules", "target", "dist", ".idea", ".vscode"]);

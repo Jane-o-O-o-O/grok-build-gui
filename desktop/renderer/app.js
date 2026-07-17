@@ -19,6 +19,8 @@
     attachments: [],
     inspectorOpen: true,
     sidebarHidden: false,
+    sidebarWidth: 278,
+    inspectorWidth: 430,
     dockTabs: [{ id: "tasks", type: "tasks", title: "侧边任务" }],
     activeDockTabId: "tasks"
   };
@@ -124,19 +126,95 @@
   ];
 
   const dockTypes = {
-    review: { title: "审阅", icon: "i-review", description: "查看 Git 工作区改动" },
     terminal: { title: "终端", icon: "i-terminal", description: "运行本地 Shell 命令" },
     browser: { title: "浏览器", icon: "i-browser", description: "打开网页与本地服务" },
     files: { title: "文件", icon: "i-file", description: "浏览和预览工作区文件" },
     tasks: { title: "侧边任务", icon: "i-tasks", description: "追踪当前 Grok 活动" }
   };
 
+  const slashCommands = [
+    { id: "help", label: "/help", description: "浏览命令与快捷键", aliases: [] },
+    { id: "docs", label: "/docs", description: "打开使用指南或在线文档", aliases: ["/howto", "/guides"] },
+    { id: "new", label: "/new", description: "开始新会话", aliases: ["/clear"] },
+    { id: "home", label: "/home", description: "返回欢迎页", aliases: ["/welcome"] },
+    { id: "fork", label: "/fork", description: "从当前会话分叉并行 Agent", aliases: [] },
+    { id: "compact", label: "/compact", description: "压缩对话历史", aliases: [] },
+    { id: "copy", label: "/copy", description: "复制最近一条回复", aliases: [] },
+    { id: "find", label: "/find", description: "搜索对话滚动历史", aliases: [] },
+    { id: "history", label: "/history", description: "搜索提示历史", aliases: [] },
+    { id: "export", label: "/export", description: "导出当前对话", aliases: [] },
+    { id: "transcript", label: "/transcript", description: "查看完整对话记录", aliases: ["/log"] },
+    { id: "expand", label: "/expand", description: "展开最近折叠块", aliases: [] },
+    { id: "context", label: "/context", description: "查看上下文占用", aliases: [] },
+    { id: "model", label: "/model", description: "切换活动模型", aliases: ["/m"] },
+    { id: "effort", label: "/effort", description: "设置推理力度", aliases: [] },
+    { id: "always-approve", label: "/always-approve", description: "切换始终批准工具", aliases: ["/yolo"] },
+    { id: "auto", label: "/auto", description: "切换自动审批模式", aliases: [] },
+    { id: "multiline", label: "/multiline", description: "切换多行输入", aliases: ["/ml"] },
+    { id: "compact-mode", label: "/compact-mode", description: "切换紧凑界面", aliases: [] },
+    { id: "vim-mode", label: "/vim-mode", description: "切换 Vim 滚动快捷键", aliases: [] },
+    { id: "hooks", label: "/hooks", description: "查看 Hooks", aliases: [] },
+    { id: "plugins", label: "/plugins", description: "查看 Plugins", aliases: [] },
+    { id: "marketplace", label: "/marketplace", description: "打开 Marketplace", aliases: [] },
+    { id: "skills", label: "/skills", description: "查看 Skills", aliases: [] },
+    { id: "share", label: "/share", description: "分享当前会话", aliases: [] },
+    { id: "session-info", label: "/session-info", description: "显示会话信息", aliases: ["/status", "/info"] },
+    { id: "rename", label: "/rename", description: "重命名当前会话", aliases: ["/title"] },
+    { id: "dashboard", label: "/dashboard", description: "打开 Agent Dashboard", aliases: ["/agents-dashboard", "/sessions"] },
+    { id: "cd", label: "/cd", description: "切换工作区目录", aliases: [] },
+    { id: "theme", label: "/theme", description: "切换桌面主题", aliases: ["/t"] },
+    { id: "feedback", label: "/feedback", description: "发送反馈", aliases: [] },
+    { id: "announcements", label: "/announcements", description: "显示或隐藏公告", aliases: [] },
+    { id: "remember", label: "/remember", description: "保存一条记忆", aliases: [] },
+    { id: "plan", label: "/plan", description: "进入计划模式", aliases: [] },
+    { id: "view-plan", label: "/view-plan", description: "查看当前计划", aliases: ["/show-plan", "/plan-view"] },
+    { id: "resume", label: "/resume", description: "恢复历史会话", aliases: [] },
+    { id: "mcps", label: "/mcps", description: "查看 MCP 状态", aliases: [] },
+    { id: "btw", label: "/btw", description: "旁路提问，不打断主任务", aliases: [] },
+    { id: "recap", label: "/recap", description: "总结当前会话", aliases: [] },
+    { id: "terminal-setup", label: "/terminal-setup", description: "检查终端与剪贴板设置", aliases: ["/terminal-check", "/terminal-info"] },
+    { id: "voice", label: "/voice", description: "切换语音输入", aliases: [] },
+    { id: "loop", label: "/loop", description: "按间隔循环执行提示", aliases: [] },
+    { id: "imagine", label: "/imagine", description: "根据描述生成图片", aliases: [] },
+    { id: "imagine-video", label: "/imagine-video", description: "根据描述生成视频", aliases: [] },
+    { id: "timestamps", label: "/timestamps", description: "切换消息时间戳", aliases: [] },
+    { id: "settings", label: "/settings", description: "打开设置", aliases: ["/config", "/preferences", "/prefs"] },
+    { id: "privacy", label: "/privacy", description: "隐私与数据设置", aliases: [] },
+    { id: "rewind", label: "/rewind", description: "回退到之前的轮次", aliases: [] },
+    { id: "login", label: "/login", description: "登录 Grok 账号", aliases: [] },
+    { id: "logout", label: "/logout", description: "退出登录", aliases: [] },
+    { id: "import-claude", label: "/import-claude", description: "导入 Claude 设置", aliases: [] },
+    { id: "usage", label: "/usage", description: "查看用量或账单", aliases: ["/cost"] },
+    { id: "queue", label: "/queue", description: "查看排队中的提示", aliases: [] },
+    { id: "tasks", label: "/tasks", description: "查看后台任务与子 Agent", aliases: [] },
+    { id: "release-notes", label: "/release-notes", description: "查看版本说明", aliases: ["/changelog"] },
+    { id: "config-agents", label: "/config-agents", description: "管理 Agent 定义", aliases: ["/agents"] },
+    { id: "personas", label: "/personas", description: "管理 Personas", aliases: [] },
+    { id: "flush", label: "/flush", description: "立即将记忆写入磁盘", aliases: [] },
+    { id: "dream", label: "/dream", description: "运行记忆整理", aliases: [] },
+    { id: "memory", label: "/memory", description: "浏览和管理记忆", aliases: ["/mem"] },
+    { id: "goal", label: "/goal", description: "设置或检查自主目标", aliases: [] },
+    { id: "create-skill", label: "/create-skill", description: "创建新的 Grok Skill", aliases: [] },
+    { id: "code-review", label: "/code-review", description: "严格可维护性代码审阅", aliases: [] },
+    { id: "check-work", label: "/check-work", description: "用子 Agent 校验改动", aliases: [] },
+    { id: "quit", label: "/quit", description: "退出应用", aliases: ["/exit"] }
+  ];
+
+  let slashPopover = null;
+  let slashIndex = 0;
+  let slashMatches = [];
+  let fileFilter = "";
+  let fileTreeCache = new Map();
+  let activeWorkspaceFile = null;
+
   function loadState() {
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
       const merged = { ...defaultState, ...saved, attachments: [] };
       if (!Array.isArray(merged.dockTabs) || !merged.dockTabs.length) merged.dockTabs = structuredClone(defaultState.dockTabs);
-      merged.dockTabs = merged.dockTabs.map((tab) => ({
+      merged.dockTabs = merged.dockTabs
+        .filter((tab) => tab && tab.type !== "review")
+        .map((tab) => ({
         ...tab,
         messages: tab.type === "tasks" && Array.isArray(tab.messages) ? tab.messages : (tab.type === "tasks" ? [] : undefined),
         sessionId: tab.type === "tasks" ? (tab.sessionId || null) : undefined,
@@ -145,7 +223,10 @@
         browserReady: false,
         output: ""
       }));
+      if (!merged.dockTabs.length) merged.dockTabs = structuredClone(defaultState.dockTabs);
       if (!merged.dockTabs.some((tab) => tab.id === merged.activeDockTabId)) merged.activeDockTabId = merged.dockTabs[0].id;
+      merged.sidebarWidth = clamp(Number(merged.sidebarWidth) || defaultState.sidebarWidth, 200, 480);
+      merged.inspectorWidth = clamp(Number(merged.inspectorWidth) || defaultState.inspectorWidth, 280, 720);
       return merged;
     } catch {
       return structuredClone(defaultState);
@@ -440,10 +521,10 @@
     if (!gitState.isRepo) {
       title.textContent = "未检测到 Git 仓库";
       summary.className = "branch-summary"; summary.innerHTML = "选择一个 Git 工作区后可查看和切换分支";
-      $("#branchSearch").closest(".branch-search").hidden = true; $("#branchCreateForm").hidden = true; $("#branchOpenReview").hidden = true;
+      $("#branchSearch").closest(".branch-search").hidden = true; $("#branchCreateForm").hidden = true;
       list.innerHTML = '<div class="context-empty">当前目录不在 Git 工作树中</div>'; $("#branchRootLabel").textContent = basename(state.cwd); return;
     }
-    $("#branchSearch").closest(".branch-search").hidden = false; $("#branchCreateForm").hidden = false; $("#branchOpenReview").hidden = false;
+    $("#branchSearch").closest(".branch-search").hidden = false; $("#branchCreateForm").hidden = false;
     title.textContent = gitState.detached ? `Detached · ${gitState.current}` : gitState.current;
     summary.className = `branch-summary ${gitState.dirtyCount ? "is-dirty" : ""}`;
     const divergence = [gitState.ahead ? `↑${gitState.ahead}` : "", gitState.behind ? `↓${gitState.behind}` : ""].filter(Boolean).join(" ");
@@ -895,7 +976,6 @@
 
   function refreshActiveDockPane() {
     const type = activeDockType();
-    if (type === "review") refreshReview();
     if (type === "files") refreshWorkspaceFiles();
     const tab = state.dockTabs.find((item) => item.id === state.activeDockTabId);
     if (tab && ["tasks", "terminal", "browser"].includes(type)) {
@@ -906,48 +986,161 @@
     }
   }
 
-  async function refreshReview() {
-    const summary = $("#reviewSummary");
-    summary.className = "review-summary";
-    summary.textContent = "正在读取 Git 工作区…";
-    if (!api) { summary.textContent = "桌面模式下读取 Git 审阅信息"; return; }
-    const result = await api.reviewWorkspace(state.cwd);
-    if (!result.ok) { summary.textContent = result.error; return; }
-    summary.classList.toggle("is-clean", result.clean);
-    summary.textContent = result.clean ? "工作区干净，没有待审阅改动。" : (result.stat || `${result.files.length} 个文件发生变化`);
-    $("#reviewFiles").innerHTML = result.files.map((file) => `<button class="review-file" data-review-file="${escapeHtml(file.path)}"><i>${escapeHtml(file.status)}</i><span>${escapeHtml(file.path)}</span></button>`).join("");
-    $$('[data-review-file]').forEach((button) => button.addEventListener("click", () => { openDockType("files"); openWorkspaceFile(button.dataset.reviewFile); }));
+  function fileIconFor(name, type) {
+    if (type === "dir") return "i-folder";
+    if (/\.(toml|json|ya?ml|ini|cfg)$/i.test(name)) return "i-settings";
+    if (/\.git/i.test(name)) return "i-git";
+    return "i-file";
+  }
+
+  function renderFileCode(content) {
+    const view = $("#fileCodeView");
+    if (!view) return;
+    if (content == null) {
+      view.innerHTML = '<div class="file-code__empty">打开工作区中的文件以查看内容</div>';
+      return;
+    }
+    const lines = String(content).replace(/\r\n/g, "\n").split("\n");
+    view.innerHTML = `<div class="file-code__lines">${lines.map((_, index) => `<span>${index + 1}</span>`).join("")}</div><pre class="file-code__content">${escapeHtml(content)}</pre>`;
+  }
+
+  function renderFileBreadcrumb(filePath) {
+    const crumb = $("#fileBreadcrumb");
+    if (!crumb) return;
+    if (!filePath) {
+      crumb.innerHTML = "<span>选择右侧文件进行预览</span>";
+      return;
+    }
+    const parts = filePath.split("/").filter(Boolean);
+    crumb.innerHTML = `<span>${escapeHtml(basename(state.cwd))}</span>${parts.map((part) => `<span>›</span><b>${escapeHtml(part)}</b>`).join("")}`;
+  }
+
+  function fileTreeItemMarkup(entry, depth) {
+    const isDir = entry.type === "dir";
+    const expanded = isDir && fileTreeCache.has(`${entry.path}::open`);
+    return `<button type="button" class="file-tree-item ${isDir ? "is-dir" : ""} ${expanded ? "is-expanded" : ""} ${activeWorkspaceFile === entry.path ? "is-active" : ""}" data-file-path="${escapeHtml(entry.path)}" data-file-type="${entry.type}" style="padding-left:${6 + depth * 12}px">${isDir ? '<svg class="file-tree-chevron"><use href="#i-chevron"/></svg>' : '<span style="width:10px"></span>'}<svg><use href="#${fileIconFor(entry.name, entry.type)}"/></svg><span>${escapeHtml(entry.name)}</span></button>${isDir ? `<div class="file-tree-children ${expanded ? "is-open" : ""}" data-file-children="${escapeHtml(entry.path)}"></div>` : ""}`;
+  }
+
+  async function loadFileTreeDir(dir = "", host = null, depth = 0) {
+    const target = host || $("#fileTree");
+    if (!target) return;
+    const cacheKey = dir || ".";
+    let entries = fileTreeCache.get(cacheKey);
+    if (!entries) {
+      const result = api
+        ? await api.listWorkspaceDir(state.cwd, dir)
+        : { ok: true, entries: [{ name: "README.md", path: "README.md", type: "file", size: 12 }, { name: "desktop", path: "desktop", type: "dir", size: 0 }] };
+      if (!result.ok) {
+        target.innerHTML = `<div class="file-tree-empty">${escapeHtml(result.error || "无法读取目录")}</div>`;
+        return;
+      }
+      entries = result.entries || [];
+      fileTreeCache.set(cacheKey, entries);
+    }
+    const query = fileFilter.trim().toLowerCase();
+    const visible = query
+      ? entries.filter((entry) => entry.name.toLowerCase().includes(query) || entry.path.toLowerCase().includes(query))
+      : entries;
+    target.innerHTML = visible.length
+      ? visible.map((entry) => fileTreeItemMarkup(entry, depth)).join("")
+      : '<div class="file-tree-empty">没有匹配的文件</div>';
+    $$("[data-file-path]", target).forEach((button) => button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const pathValue = button.dataset.filePath;
+      const type = button.dataset.fileType;
+      if (type === "dir") {
+        const openKey = `${pathValue}::open`;
+        const childHost = button.nextElementSibling;
+        if (fileTreeCache.has(openKey)) {
+          fileTreeCache.delete(openKey);
+          button.classList.remove("is-expanded");
+          if (childHost?.classList.contains("file-tree-children")) { childHost.classList.remove("is-open"); childHost.innerHTML = ""; }
+          return;
+        }
+        fileTreeCache.set(openKey, true);
+        button.classList.add("is-expanded");
+        if (childHost?.classList.contains("file-tree-children")) {
+          childHost.classList.add("is-open");
+          await loadFileTreeDir(pathValue, childHost, depth + 1);
+        }
+        return;
+      }
+      await openWorkspaceFile(pathValue);
+    }));
+    for (const entry of visible.filter((item) => item.type === "dir" && fileTreeCache.has(`${item.path}::open`))) {
+      const childHost = target.querySelector(`[data-file-children="${entry.path.replace(/"/g, '\\"')}"]`);
+      if (childHost) await loadFileTreeDir(entry.path, childHost, depth + 1);
+    }
   }
 
   async function refreshWorkspaceFiles() {
-    const list = $("#workspaceFileList");
-    list.innerHTML = '<div class="context-empty"><span>正在建立文件索引…</span></div>';
-    if (!api) { list.innerHTML = '<div class="context-empty"><span>桌面模式下浏览工作区文件</span></div>'; return; }
-    const result = await api.listWorkspaceFiles(state.cwd);
-    if (!result.ok) { list.innerHTML = `<div class="context-empty"><span>${escapeHtml(result.error)}</span></div>`; return; }
-    list.innerHTML = result.files.map((file) => `<button class="workspace-file" data-workspace-file="${escapeHtml(file.path)}"><svg><use href="#i-file"/></svg><span>${escapeHtml(file.path)}</span><small>${formatBytes(file.size)}</small></button>`).join("");
-    $$('[data-workspace-file]').forEach((button) => button.addEventListener("click", () => openWorkspaceFile(button.dataset.workspaceFile)));
-  }
-
-  function formatBytes(size) {
-    if (size < 1024) return `${size} B`;
-    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} K`;
-    return `${(size / 1024 / 1024).toFixed(1)} M`;
+    fileTreeCache.clear();
+    await loadFileTreeDir("");
   }
 
   async function openWorkspaceFile(file) {
-    $("#filePreviewTitle").textContent = file;
-    $("#filePreviewContent").textContent = "正在读取…";
-    $$('[data-workspace-file]').forEach((button) => button.classList.toggle("is-active", button.dataset.workspaceFile === file));
-    if (!api) return;
+    activeWorkspaceFile = file;
+    const tabName = $("#fileTabName");
+    if (tabName) tabName.textContent = basename(file);
+    renderFileBreadcrumb(file);
+    renderFileCode("正在读取…");
+    $$("[data-file-path]").forEach((button) => button.classList.toggle("is-active", button.dataset.filePath === file));
+    if (!api) {
+      renderFileCode(`# ${file}\n\n预览模式示例内容。`);
+      return;
+    }
     const result = await api.readWorkspaceFile(state.cwd, file);
-    $("#filePreviewContent").textContent = result.ok ? result.content : result.error;
+    renderFileCode(result.ok ? result.content : result.error);
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function applyPaneWidths() {
+    document.documentElement.style.setProperty("--sidebar-width", `${state.sidebarWidth}px`);
+    document.documentElement.style.setProperty("--inspector-width", `${state.inspectorWidth}px`);
+  }
+
+  function bindPaneResizer(el, kind) {
+    if (!el) return;
+    el.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      const shell = $("#appShell");
+      const startX = event.clientX;
+      const startSidebar = state.sidebarWidth;
+      const startInspector = state.inspectorWidth;
+      const maxSidebar = Math.max(200, Math.min(480, window.innerWidth - (state.inspectorOpen ? state.inspectorWidth : 0) - 360));
+      const maxInspector = Math.max(280, Math.min(720, window.innerWidth - (state.sidebarHidden ? 0 : state.sidebarWidth) - 360));
+      shell.classList.add("is-resizing");
+      el.classList.add("is-dragging");
+      el.setPointerCapture?.(event.pointerId);
+      const onMove = (moveEvent) => {
+        const delta = moveEvent.clientX - startX;
+        if (kind === "sidebar") state.sidebarWidth = clamp(startSidebar + delta, 200, maxSidebar);
+        else state.inspectorWidth = clamp(startInspector - delta, 280, maxInspector);
+        applyPaneWidths();
+      };
+      const onUp = () => {
+        shell.classList.remove("is-resizing");
+        el.classList.remove("is-dragging");
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+        saveState();
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    });
   }
 
   function updateLayout() {
     const shell = $("#appShell");
     shell.classList.toggle("is-sidebar-hidden", state.sidebarHidden);
     shell.classList.toggle("is-inspector-open", state.inspectorOpen);
+    applyPaneWidths();
     // A focused control inside a collapsing grid column can make Chromium keep a
     // hidden horizontal document offset. Reset it so the left navigation never
     // gets pushed outside the viewport after closing the right workbench.
@@ -1170,7 +1363,7 @@
   async function chooseWorkspace() {
     if (!api) { toast("桌面预览", "Electron 中可选择本地工作区"); return; }
     const cwd = await api.pickWorkspace();
-    if (cwd) { state.cwd = cwd; const thread = activeThread(); if (thread && !thread.messages.length) thread.cwd = cwd; saveState(); updateWorkspace(); updateWindowTrail(); await refreshGitInfo(); refreshActiveDockPane(); toast("已切换工作区", cwd); }
+    if (cwd) { state.cwd = cwd; const thread = activeThread(); if (thread && !thread.messages.length) thread.cwd = cwd; saveState(); updateWorkspace(); updateWindowTrail(); await refreshGitInfo(); fileTreeCache.clear(); activeWorkspaceFile = null; refreshActiveDockPane(); toast("已切换工作区", cwd); }
   }
 
   async function chooseFiles() {
@@ -1658,6 +1851,160 @@
     $$(".is-picker-open").forEach((button) => button.classList.remove("is-picker-open"));
   }
 
+  function closeSlashMenu() {
+    slashPopover?.remove();
+    slashPopover = null;
+    slashMatches = [];
+    slashIndex = 0;
+  }
+
+  function slashQueryFromInput(value) {
+    const match = String(value || "").match(/(?:^|\s)(\/[^\s]*)$/);
+    return match ? match[1] : null;
+  }
+
+  function filterSlashCommands(query) {
+    const needle = String(query || "/").toLowerCase();
+    return slashCommands
+      .map((command) => ({
+        ...command,
+        haystack: [command.label, ...(command.aliases || []), command.description].join(" ").toLowerCase()
+      }))
+      .filter((command) => command.haystack.includes(needle.slice(1)) || command.label.startsWith(needle) || (command.aliases || []).some((alias) => alias.startsWith(needle)))
+      .slice(0, 12);
+  }
+
+  function renderSlashMenu() {
+    if (!slashPopover) return;
+    const items = slashPopover.querySelector(".slash-popover__items");
+    if (!slashMatches.length) {
+      items.innerHTML = '<div class="slash-popover__empty">没有匹配的斜杠命令</div>';
+      return;
+    }
+    items.innerHTML = slashMatches.map((command, index) => `
+      <button type="button" class="slash-option ${index === slashIndex ? "is-selected" : ""}" data-slash-index="${index}">
+        <span class="slash-option__cmd">${escapeHtml(command.label)}</span>
+        <span class="slash-option__copy">${escapeHtml(command.description)}</span>
+      </button>`).join("");
+    $$("[data-slash-index]", items).forEach((button) => button.addEventListener("click", () => {
+      slashIndex = Number(button.dataset.slashIndex);
+      applySlashCommand(slashMatches[slashIndex]);
+    }));
+    items.querySelector(".slash-option.is-selected")?.scrollIntoView({ block: "nearest" });
+  }
+
+  function positionSlashMenu() {
+    if (!slashPopover) return;
+    const composer = $("#composer");
+    const rect = composer.getBoundingClientRect();
+    const popRect = slashPopover.getBoundingClientRect();
+    const left = Math.max(10, Math.min(rect.left, innerWidth - popRect.width - 10));
+    const top = Math.max(10, rect.top - popRect.height - 8);
+    slashPopover.style.left = `${left}px`;
+    slashPopover.style.top = `${top}px`;
+  }
+
+  function updateSlashMenu(value) {
+    const query = slashQueryFromInput(value);
+    if (!query) { closeSlashMenu(); return; }
+    slashMatches = filterSlashCommands(query);
+    slashIndex = Math.min(slashIndex, Math.max(0, slashMatches.length - 1));
+    if (!slashPopover) {
+      slashPopover = document.createElement("section");
+      slashPopover.className = "slash-popover";
+      slashPopover.innerHTML = `<div class="slash-popover__head">斜杠命令</div><div class="slash-popover__items"></div>`;
+      document.body.appendChild(slashPopover);
+    }
+    renderSlashMenu();
+    positionSlashMenu();
+  }
+
+  function handleSlashKeydown(event) {
+    if (!slashPopover || !slashMatches.length) return false;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      slashIndex = (slashIndex + 1) % slashMatches.length;
+      renderSlashMenu();
+      return true;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      slashIndex = (slashIndex - 1 + slashMatches.length) % slashMatches.length;
+      renderSlashMenu();
+      return true;
+    }
+    if (event.key === "Enter" || event.key === "Tab") {
+      event.preventDefault();
+      applySlashCommand(slashMatches[slashIndex]);
+      return true;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeSlashMenu();
+      return true;
+    }
+    return false;
+  }
+
+  function replaceSlashToken(commandLabel) {
+    const input = $("#promptInput");
+    input.value = String(input.value || "").replace(/(^|\s)\/[^\s]*$/, `$1${commandLabel} `);
+    autoSizeInput();
+    input.focus();
+    closeSlashMenu();
+  }
+
+  function applySlashCommand(command) {
+    if (!command) return;
+    closeSlashMenu();
+    const input = $("#promptInput");
+    const run = {
+      help: () => openPalette(),
+      docs: () => api?.openExternal?.("https://x.ai") || toast("文档", "请查看 Grok Build 使用指南"),
+      new: () => createThread(),
+      home: () => { state.activeThreadId = null; saveState(); renderAll(); },
+      model: () => $("#modelButton").click(),
+      effort: () => $("#effortButton").click(),
+      "always-approve": () => toggleApproval(),
+      settings: () => openSettings("general"),
+      privacy: () => openSettings("privacy"),
+      hooks: () => openSettings("integrations"),
+      plugins: () => openSettings("integrations"),
+      marketplace: () => openSettings("integrations"),
+      skills: () => openSettings("integrations"),
+      mcps: () => openSettings("integrations"),
+      memory: () => openSettings("memory"),
+      "config-agents": () => openSettings("integrations"),
+      personas: () => openSettings("integrations"),
+      cd: () => chooseWorkspace(),
+      theme: () => { state.theme = resolvedTheme() === "dark" ? "light" : "dark"; saveState(); updateLayout(); toast("主题已切换", resolvedTheme()); },
+      login: () => toggleAuth(),
+      logout: () => toggleAuth(),
+      quit: () => api?.close?.(),
+      exit: () => api?.close?.(),
+      copy: async () => {
+        const message = [...(activeThread()?.messages || [])].reverse().find((item) => item.role === "assistant" && item.text);
+        if (!message) return toast("没有可复制的回复", "先完成一轮对话");
+        await navigator.clipboard.writeText(message.text);
+        toast("已复制", "最近回复已复制到剪贴板");
+      },
+      tasks: () => { state.inspectorOpen = true; openDockType("tasks"); updateLayout(); },
+      context: () => toast("上下文", "桌面端会在运行时自动管理上下文压缩"),
+      compact: () => toast("压缩", "会话压缩由 Runtime 在达到阈值时自动执行"),
+      resume: () => openPalette(),
+      find: () => openPalette(),
+      history: () => openPalette()
+    }[command.id];
+    if (run) {
+      input.value = String(input.value || "").replace(/(?:^|\s)\/[^\s]*$/, "").replace(/\s+$/, "");
+      autoSizeInput();
+      run();
+      return;
+    }
+    replaceSlashToken(command.label);
+    toast("斜杠命令", `${command.label} 已填入输入框，可继续补充参数后发送`);
+  }
+
   function openPicker(anchor, { items, selected, onSelect }) {
     closePicker();
     anchor.classList.add("is-picker-open");
@@ -1767,21 +2114,30 @@
     $("#branchRefresh").addEventListener("click", async (event) => { event.stopPropagation(); await refreshGitInfo(); });
     $("#branchSearch").addEventListener("input", (event) => { branchFilter = event.target.value; renderBranchPopover(); });
     $("#branchCreateForm").addEventListener("submit", createBranch);
-    $("#branchOpenReview").addEventListener("click", () => { $("#branchPopover").hidden = true; $("#branchButton").setAttribute("aria-expanded", "false"); openDockType("review"); });
     $("#attachButton").addEventListener("click", chooseFiles);
     $("#sendButton").addEventListener("click", sendPrompt);
-    $("#promptInput").addEventListener("input", autoSizeInput);
-    $("#promptInput").addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); sendPrompt(); } });
+    $("#promptInput").addEventListener("input", (event) => {
+      autoSizeInput();
+      updateSlashMenu(event.target.value);
+    });
+    $("#promptInput").addEventListener("keydown", (event) => {
+      if (handleSlashKeydown(event)) return;
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); sendPrompt(); }
+    });
     $("#sidebarToggle").addEventListener("click", () => { state.sidebarHidden = !state.sidebarHidden; saveState(); updateLayout(); });
     $("#inspectorToggle").addEventListener("click", () => { state.inspectorOpen = !state.inspectorOpen; saveState(); updateLayout(); if (state.inspectorOpen) refreshActiveDockPane(); });
     $("#inspectorClose").addEventListener("click", () => { state.inspectorOpen = false; saveState(); updateLayout(); });
+    bindPaneResizer($("#sidebarResizer"), "sidebar");
+    bindPaneResizer($("#inspectorResizer"), "inspector");
     $("#dockTabAdd").addEventListener("click", (event) => { event.stopPropagation(); $("#dockTabPicker").hidden = !$("#dockTabPicker").hidden; });
     $("#dockTabPrev").addEventListener("click", () => $("#dockTabs").scrollBy({ left: -220, behavior: "smooth" }));
     $("#dockTabNext").addEventListener("click", () => $("#dockTabs").scrollBy({ left: 220, behavior: "smooth" }));
     $("#dockTabs").addEventListener("scroll", updateDockScrollButtons);
     window.addEventListener("resize", updateDockScrollButtons);
-    $("#reviewRefresh").addEventListener("click", refreshReview);
-    $("#filesRefresh").addEventListener("click", refreshWorkspaceFiles);
+    $("#fileFilterInput")?.addEventListener("input", async (event) => {
+      fileFilter = event.target.value;
+      await loadFileTreeDir("");
+    });
     $("#approvalSwitch").addEventListener("click", toggleApproval);
     $("#settingsButton").addEventListener("click", () => openSettings("general")); $$('[data-close-modal]').forEach((button) => button.addEventListener("click", closeSettings));
     $("#settingsBackdrop").addEventListener("click", (event) => { if (event.target === $("#settingsBackdrop")) closeSettings(); });
@@ -1846,12 +2202,14 @@
       if (mod && event.key === ",") { event.preventDefault(); openSettings(); }
       if (mod && event.key.toLowerCase() === "f" && !$("#settingsBackdrop").hidden) { event.preventDefault(); $("#settingsSearch").focus(); }
       if (event.key === "Escape") {
+        if (slashPopover) { closeSlashMenu(); return; }
         if (!$("#integrationDetailBackdrop").hidden) { closeIntegrationDetail(); return; }
         $("#accountPopover").hidden = true; $("#branchPopover").hidden = true; $("#branchButton").setAttribute("aria-expanded", "false"); closePicker(); closePalette(); closeSettings();
       }
     });
     document.addEventListener("click", (event) => {
       if (pickerPopover && !pickerPopover.contains(event.target)) closePicker();
+      if (slashPopover && !slashPopover.contains(event.target) && event.target !== $("#promptInput")) closeSlashMenu();
       if (!event.target.closest("#dockTabPicker") && !event.target.closest("#dockTabAdd")) $("#dockTabPicker").hidden = true;
       if (!event.target.closest("#accountPopover") && !event.target.closest("#runtimeCard")) $("#accountPopover").hidden = true;
       if (!event.target.closest("#branchPopover") && !event.target.closest("#branchButton")) { $("#branchPopover").hidden = true; $("#branchButton").setAttribute("aria-expanded", "false"); }

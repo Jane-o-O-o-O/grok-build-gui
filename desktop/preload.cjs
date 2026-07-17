@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld("grokDesktop", {
   createGitBranch: (cwd, branch) => ipcRenderer.invoke("git:create-branch", { cwd, branch }),
   reviewWorkspace: (cwd) => ipcRenderer.invoke("workspace:review", cwd),
   listWorkspaceFiles: (cwd) => ipcRenderer.invoke("workspace:files", cwd),
+  listWorkspaceDir: (cwd, dir) => ipcRenderer.invoke("workspace:list", { cwd, dir }),
   readWorkspaceFile: (cwd, file) => ipcRenderer.invoke("workspace:read", { cwd, file }),
   runTerminalCommand: (cwd, command) => ipcRenderer.invoke("terminal:run", { cwd, command }),
   createTerminal: (terminalId, cwd) => ipcRenderer.invoke("terminal:create", { terminalId, cwd }),

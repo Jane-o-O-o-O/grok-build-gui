@@ -26,7 +26,7 @@ const backend = fs.readFileSync(path.join(root, "main.cjs"), "utf8") + fs.readFi
 for (const ref of [...html.matchAll(/(?:href|src)="([^"]+\.(?:css|js|woff2))"/g)].map((match) => match[1])) {
   if (!fs.existsSync(path.join(root, "renderer", ref))) throw new Error(`Broken HTML asset: ${ref}`);
 }
-for (const id of ["messages", "promptInput", "sendButton", "threadList", "branchButton", "branchPopover", "branchList", "settingsBackdrop", "settingsSearch", "rawConfigEditor", "accountPopover", "authMenuButton", "providerUrl", "discoverModelsButton", "dockTabs", "dockTabAdd", "dockTabPrev", "dockTabNext", "dockDynamicPanes", "workspaceFileList"]) {
+for (const id of ["messages", "promptInput", "sendButton", "threadList", "branchButton", "branchPopover", "branchList", "settingsBackdrop", "settingsSearch", "rawConfigEditor", "accountPopover", "authMenuButton", "providerUrl", "discoverModelsButton", "dockTabs", "dockTabAdd", "dockTabPrev", "dockTabNext", "dockDynamicPanes", "fileTree", "fileFilterInput", "fileCodeView", "sidebarResizer", "inspectorResizer"]) {
   if (!html.includes(`id="${id}"`) || !js.includes(`#${id}`)) throw new Error(`UI wiring missing: ${id}`);
 }
 for (const selector of [".app-shell", ".sidebar", ".conversation", ".composer", ".inspector", ".message", ".tool-card"]) {
@@ -35,7 +35,7 @@ for (const selector of [".app-shell", ".sidebar", ".conversation", ".composer", 
 for (const token of ["--accent", "--surface", "--text", "--line", "--shadow-composer"]) {
   if (!css.includes(token)) throw new Error(`Design token missing: ${token}`);
 }
-for (const feature of ["scheduleStreamingRender", "scheduleSideStreamingRender", "requestAnimationFrame", "openPicker", "picker-popover", "dock-status--workspace", "dock-status--local", "grokLogoShimmer", "assets/grok-mark.png", "discoverProviderModels", "nativeSettingGroups", "config:save-raw", "auth:login", "onAuthEvent", "git:info", "switchGitBranch", "branch-popover", "dock-tabbar", "terminal:create", "onTerminalEvent", "side-task-composer", "data-browser-view", "workspace:files", "providers:discover", "startSessionUpdateBridge", "tool_call_update", "toolMessageMarkup", "thinking-block", "permission_requested", "runtime:models", "hydrateRuntimeModels", "settings-search-hit", "settingsSearchCatalog", "integration-detail-modal", "openIntegrationDetail"]) {
+for (const feature of ["scheduleStreamingRender", "scheduleSideStreamingRender", "requestAnimationFrame", "openPicker", "picker-popover", "dock-status--workspace", "dock-status--local", "grokLogoShimmer", "assets/grok-mark.png", "discoverProviderModels", "nativeSettingGroups", "config:save-raw", "auth:login", "onAuthEvent", "git:info", "switchGitBranch", "branch-popover", "dock-tabbar", "terminal:create", "onTerminalEvent", "side-task-composer", "data-browser-view", "workspace:list", "providers:discover", "startSessionUpdateBridge", "tool_call_update", "toolMessageMarkup", "thinking-block", "permission_requested", "runtime:models", "hydrateRuntimeModels", "settings-search-hit", "settingsSearchCatalog", "integration-detail-modal", "openIntegrationDetail", "slash-popover", "slashCommands", "file-explorer", "file-tree", "pane-resizer", "bindPaneResizer", "applyPaneWidths"]) {
   if (!`${html}\n${js}\n${css}\n${backend}`.includes(feature)) throw new Error(`Desktop interaction missing: ${feature}`);
 }
 const iconGenerator = fs.readFileSync(path.join(root, "scripts/generate-icon.py"), "utf8");

@@ -96,6 +96,8 @@
       </aside>
 
       <main class="workspace">
+        <div class="pane-resizer pane-resizer--sidebar" id="sidebarResizer" role="separator" aria-orientation="vertical" aria-label="调整侧栏宽度"></div>
+        <div class="pane-resizer pane-resizer--inspector" id="inspectorResizer" role="separator" aria-orientation="vertical" aria-label="调整工作台宽度"></div>
         <div class="workspace-toolbar">
           <div class="toolbar-group toolbar-group--branch">
             <button class="icon-button sidebar-toggle" id="sidebarToggle" title="侧栏"><svg><use href="#i-panel"/></svg></button>
@@ -106,7 +108,7 @@
               <label class="branch-search"><svg><use href="#i-search"/></svg><input id="branchSearch" placeholder="搜索本地分支…"/></label>
               <div class="branch-list" id="branchList"></div>
               <form class="branch-create" id="branchCreateForm"><input id="branchCreateInput" placeholder="新分支名称" spellcheck="false"/><button class="secondary-button" type="submit"><svg><use href="#i-plus"/></svg>创建</button></form>
-              <footer><button class="text-button" id="branchOpenReview"><svg><use href="#i-review"/></svg>打开审阅</button><span id="branchRootLabel"></span></footer>
+              <footer><span id="branchRootLabel"></span></footer>
             </section>
           </div>
           <div class="toolbar-group toolbar-group--right">
@@ -153,15 +155,24 @@
         <div class="dock-panes">
           <div id="dockDynamicPanes"></div>
 
-          <section class="dock-pane" data-dock-pane="review">
-            <div class="dock-pane__title"><div><small>WORKTREE REVIEW</small><h2>审阅</h2></div><button class="icon-button" id="reviewRefresh"><svg><use href="#i-refresh"/></svg></button></div>
-            <div class="review-summary" id="reviewSummary"></div>
-            <div class="review-files" id="reviewFiles"></div>
-          </section>
-
           <section class="dock-pane" data-dock-pane="files">
-            <div class="dock-pane__title"><div><small>WORKSPACE INDEX</small><h2>文件</h2></div><button class="icon-button" id="filesRefresh"><svg><use href="#i-refresh"/></svg></button></div>
-            <div class="file-workbench"><div class="file-list" id="workspaceFileList"></div><div class="file-preview"><div class="file-preview__head" id="filePreviewTitle">选择文件进行预览</div><pre id="filePreviewContent"></pre></div></div>
+            <div class="file-explorer">
+              <div class="file-editor">
+                <div class="file-editor__tabs">
+                  <button type="button" class="file-tab is-active" id="fileTab"><svg><use href="#i-file"/></svg><span id="fileTabName">未选择文件</span></button>
+                </div>
+                <div class="file-editor__crumb" id="fileBreadcrumb"><span>选择左侧文件进行预览</span></div>
+                <div class="file-editor__body">
+                  <div class="file-code" id="fileCodeView">
+                    <div class="file-code__empty">打开工作区中的文件以查看内容</div>
+                  </div>
+                </div>
+              </div>
+              <aside class="file-sidebar">
+                <label class="file-filter"><svg><use href="#i-search"/></svg><input id="fileFilterInput" placeholder="筛选文件…" spellcheck="false"/></label>
+                <div class="file-tree" id="fileTree"></div>
+              </aside>
+            </div>
           </section>
         </div>
         <div class="dock-tab-picker" id="dockTabPicker" hidden></div>
