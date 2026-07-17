@@ -38,6 +38,7 @@ npm run pack
 - 右侧工作台支持审阅、终端、浏览器、文件和侧边任务标签；终端、浏览器与侧边任务可以创建多个独立实例，标签栏支持左右滑动浏览。
 - 侧边任务是与主区域一致的流式对话页：独立续接 Runtime 会话，并在每次发送时同步主对话最新上下文与同一项目 Memory。
 - 每个终端标签运行一份以当前项目目录为起点的持久 PowerShell / Shell，会保留 `cd`、环境变量、输出和命令历史；浏览器标签则各自保留地址与导航历史。
+- Runtime、OAuth、第三方模型发现和模型请求统一跟随 Electron 解析出的系统代理/PAC；支持 HTTP(S) 与 SOCKS，并为 localhost 自动设置 `NO_PROXY`。
 - 主工具栏 Git 按钮会读取当前分支、Dirty/暂存状态、上游 Ahead/Behind，并支持搜索、切换、创建本地分支及跳转审阅。
 - 原生 TUI 与参考设置页的能力对照见 [`docs/settings-capability-audit.md`](docs/settings-capability-audit.md)。
 

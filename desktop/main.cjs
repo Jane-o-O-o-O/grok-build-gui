@@ -26,24 +26,40 @@ let activeAuthRun = null;
 let activeAuthUrl = null;
 let cachedSystemProxyEnvironment = {};
 
-async function environmentWithSystemProxy(baseEnv, targetUrl) {
-  const env = { ...baseEnv, ...cachedSystemProxyEnvironment };
-  if (env.HTTPS_PROXY || env.https_proxy || env.ALL_PROXY || env.all_proxy) return env;
+function localNoProxy(existing = "") {
+  return [...new Set([...String(existing || "").split(",").map((item) => item.trim()).filter(Boolean), "localhost", "127.0.0.1", "::1", "[::1]"])].join(",");
+}
+
+async function refreshSystemProxyEnvironment(targetUrl) {
   try {
     const rule = await session.defaultSession.resolveProxy(targetUrl);
-    const entry = String(rule || "").split(";").map((item) => item.trim()).find((item) => /^(PROXY|HTTPS)\s+/i.test(item));
+    const entries = String(rule || "").split(";").map((item) => item.trim()).filter(Boolean);
+    const entry = entries.find((item) => /^(PROXY|HTTPS|SOCKS5?|SOCKS)\s+/i.test(item));
     if (entry) {
-      const address = entry.replace(/^(PROXY|HTTPS)\s+/i, "");
-      const proxyUrl = `http://${address}`;
-      env.HTTPS_PROXY = proxyUrl; env.HTTP_PROXY = proxyUrl;
-      env.https_proxy = proxyUrl; env.http_proxy = proxyUrl;
+      const kind = entry.match(/^(PROXY|HTTPS|SOCKS5?|SOCKS)/i)?.[1]?.toUpperCase();
+      const address = entry.replace(/^(PROXY|HTTPS|SOCKS5?|SOCKS)\s+/i, "");
+      const proxyUrl = `${kind?.startsWith("SOCKS") ? "socks5" : "http"}://${address}`;
+      const noProxy = localNoProxy(process.env.NO_PROXY || process.env.no_proxy);
       cachedSystemProxyEnvironment = {
-        HTTPS_PROXY: proxyUrl, HTTP_PROXY: proxyUrl,
-        https_proxy: proxyUrl, http_proxy: proxyUrl
+        ...(kind?.startsWith("SOCKS")
+          ? { ALL_PROXY: proxyUrl, all_proxy: proxyUrl }
+          : { HTTPS_PROXY: proxyUrl, HTTP_PROXY: proxyUrl, https_proxy: proxyUrl, http_proxy: proxyUrl }),
+        NO_PROXY: noProxy, no_proxy: noProxy
       };
-    }
+    } else cachedSystemProxyEnvironment = { NO_PROXY: localNoProxy(process.env.NO_PROXY || process.env.no_proxy), no_proxy: localNoProxy(process.env.NO_PROXY || process.env.no_proxy) };
   } catch {}
-  return env;
+  return cachedSystemProxyEnvironment;
+}
+
+async function environmentWithSystemProxy(baseEnv, targetUrl) {
+  const hasExplicitProxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.ALL_PROXY || process.env.all_proxy;
+  if (!hasExplicitProxy) await refreshSystemProxyEnvironment(targetUrl);
+  return {
+    ...baseEnv,
+    ...(!hasExplicitProxy ? cachedSystemProxyEnvironment : {}),
+    NO_PROXY: localNoProxy(baseEnv.NO_PROXY || baseEnv.no_proxy),
+    no_proxy: localNoProxy(baseEnv.no_proxy || baseEnv.NO_PROXY)
+  };
 }
 
 function providerStorePath() {
@@ -119,7 +135,17 @@ function providerEnvironment() {
 }
 
 function runtimeEnvironment(extra = {}) {
-  return { ...process.env, ...cachedSystemProxyEnvironment, ...providerEnvironment(), ...extra };
+  const env = { ...cachedSystemProxyEnvironment, ...process.env, ...providerEnvironment(), ...extra };
+  env.NO_PROXY = localNoProxy(env.NO_PROXY || env.no_proxy); env.no_proxy = env.NO_PROXY;
+  return env;
+}
+
+function runtimeTargetUrl(modelId) {
+  if (modelId && modelId !== "auto") {
+    const provider = loadProviderStore().providers.find((item) => (item.models || []).some((model) => model.localId === modelId));
+    if (provider?.baseUrl) return provider.baseUrl;
+  }
+  return "https://auth.x.ai/.well-known/openid-configuration";
 }
 
 function publicProviders(store = loadProviderStore()) {
@@ -240,7 +266,10 @@ function buildArgs(payload) {
   return args;
 }
 
-ipcMain.handle("runtime:info", () => runtimeInfo());
+ipcMain.handle("runtime:info", async () => {
+  await refreshSystemProxyEnvironment("https://auth.x.ai/.well-known/openid-configuration");
+  return runtimeInfo();
+});
 
 ipcMain.handle("config:read", () => {
   const config = readNativeConfig(grokConfigPath());
@@ -334,7 +363,8 @@ ipcMain.handle("providers:list", () => publicProviders());
 
 ipcMain.handle("providers:discover", async (_event, payload) => {
   try {
-    return { ok: true, ...(await discoverModels(payload || {})) };
+    const fetchWithSystemProxy = (input, init) => session.defaultSession.fetch(input, init);
+    return { ok: true, ...(await discoverModels(payload || {}, fetchWithSystemProxy)) };
   } catch (error) {
     return { ok: false, error: error.message };
   }
@@ -541,7 +571,7 @@ ipcMain.handle("grok:prompt", async (_event, payload) => {
 
   const runId = crypto.randomUUID();
   runClients.set(runId, String(payload.clientId || "main"));
-  const runtimeEnv = await environmentWithSystemProxy(runtimeEnvironment(), "https://auth.x.ai/.well-known/openid-configuration");
+  const runtimeEnv = await environmentWithSystemProxy(runtimeEnvironment(), runtimeTargetUrl(payload.model));
   const child = spawn(binary, buildArgs(payload), {
     cwd: payload.cwd,
     windowsHide: true,
@@ -621,7 +651,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  await environmentWithSystemProxy(process.env, "https://auth.x.ai/.well-known/openid-configuration");
+  await refreshSystemProxyEnvironment("https://auth.x.ai/.well-known/openid-configuration");
   createWindow();
 });
 app.on("window-all-closed", () => {

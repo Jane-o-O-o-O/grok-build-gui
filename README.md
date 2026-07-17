@@ -448,6 +448,17 @@ grok logout
 
 ---
 
+## 网络与系统代理
+
+- 使用 Electron/Chromium 解析 Windows、macOS 与 Linux 的系统代理和 PAC 规则；
+- 将 HTTP(S) 或 SOCKS 代理同时注入原生 Runtime、OAuth、模型目录、第三方模型和终端进程；
+- 每次重新检测 Runtime 或发起模型请求时重新解析代理，系统代理变更无需重启应用；
+- 第三方模型发现通过 Chromium Session 发起请求，与内嵌浏览器使用一致的代理路径；
+- 自动设置 `NO_PROXY`，确保 `localhost`、`127.0.0.1` 和 `::1` 本地服务不绕行代理；
+- 第三方模型会按自己的 `base_url` 解析 PAC 路由，而不是固定复用 xAI 域名的结果。
+
+---
+
 ## 架构
 
 ```mermaid
