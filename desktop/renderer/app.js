@@ -1223,13 +1223,13 @@
     $$(".is-picker-open").forEach((button) => button.classList.remove("is-picker-open"));
   }
 
-  function openPicker(anchor, { eyebrow, title, items, selected, onSelect }) {
+  function openPicker(anchor, { items, selected, onSelect }) {
     closePicker();
     anchor.classList.add("is-picker-open");
     const popover = document.createElement("section");
     popover.className = "picker-popover";
     popover.setAttribute("role", "listbox");
-    popover.innerHTML = `<header><small>${escapeHtml(eyebrow)}</small><b>${escapeHtml(title)}</b></header><div class="picker-popover__items">${items.map((item) => `<button class="picker-option ${item.id === selected ? "is-selected" : ""}" role="option" aria-selected="${item.id === selected}" data-picker-id="${escapeHtml(item.id)}"><span class="picker-option__radio"><i></i></span><span class="picker-option__copy"><b>${escapeHtml(item.label)}</b><small>${escapeHtml(item.description || "")}</small></span>${item.badge ? `<em>${escapeHtml(item.badge)}</em>` : ""}</button>`).join("")}</div>`;
+    popover.innerHTML = `<div class="picker-popover__items">${items.map((item) => `<button class="picker-option ${item.id === selected ? "is-selected" : ""}" role="option" aria-selected="${item.id === selected}" data-picker-id="${escapeHtml(item.id)}"><span class="picker-option__radio"><i></i></span><span class="picker-option__copy"><b>${escapeHtml(item.label)}</b><small>${escapeHtml(item.description || "")}</small></span>${item.badge ? `<em>${escapeHtml(item.badge)}</em>` : ""}</button>`).join("")}</div>`;
     document.body.appendChild(popover);
     pickerPopover = popover;
     const anchorRect = anchor.getBoundingClientRect();
@@ -1238,6 +1238,9 @@
     const top = Math.max(10, anchorRect.top - popoverRect.height - 9);
     popover.style.left = `${left}px`;
     popover.style.top = `${top}px`;
+    const itemScroller = popover.querySelector(".picker-popover__items");
+    itemScroller.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true });
+    requestAnimationFrame(() => popover.querySelector(".picker-option.is-selected")?.scrollIntoView({ block: "nearest" }));
     popover.querySelectorAll("[data-picker-id]").forEach((button) => button.addEventListener("click", (event) => {
       event.stopPropagation();
       const item = items.find((candidate) => candidate.id === button.dataset.pickerId);
@@ -1338,8 +1341,6 @@
     $("#modelButton").addEventListener("click", (event) => {
       event.stopPropagation();
       openPicker(event.currentTarget, {
-        eyebrow: "MODEL ROUTING",
-        title: "选择模型",
         selected: state.model,
         items: runtimeModels.map((item, index) => ({ ...item, description: item.id === "auto" ? "跟随 Grok Runtime 的默认模型" : "固定使用这个模型处理后续任务", badge: index === 0 ? "推荐" : "" })),
         onSelect: (item) => { state.model = item.id; state.modelLabel = item.label; saveState(); updateWorkspace(); toast("模型已切换", item.label); }
@@ -1348,8 +1349,6 @@
     $("#effortButton").addEventListener("click", (event) => {
       event.stopPropagation();
       openPicker(event.currentTarget, {
-        eyebrow: "REASONING EFFORT",
-        title: "选择思考档位",
         selected: state.effort,
         items: [
           { id: "low", label: "低思考", description: "快速回答，适合简单修改与查询" },

@@ -375,12 +375,9 @@ button.dock-status:hover { border-color: var(--line-accent); background: var(--s
 .saved-provider small { overflow: hidden; color: var(--text-3); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .saved-provider button { flex: none; }
 
-.picker-popover { position: fixed; z-index: 120; width: 318px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: var(--r-lg); background: var(--surface-float); box-shadow: var(--shadow-float); backdrop-filter: blur(24px) saturate(1.2); animation: pickerIn .22s var(--ease-out) both; }
-.picker-popover header { padding: 11px 13px 9px; display: flex; flex-direction: column; border-bottom: 1px solid var(--line); }
-.picker-popover header small { color: var(--accent); font: 9px/1.4 var(--font-mono); letter-spacing: .12em; }
-.picker-popover header b { margin-top: 2px; font-size: 12px; font-weight: 500; }
-.picker-popover__items { padding: 5px; }
-.picker-option { width: 100%; min-height: 53px; display: flex; align-items: center; gap: 10px; padding: 7px 9px; border-radius: 9px; background: transparent; text-align: left; }
+.picker-popover { position: fixed; z-index: 120; width: 318px; max-height: min(300px, calc(100vh - 24px)); display: flex; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--surface-float); box-shadow: var(--shadow-float); backdrop-filter: blur(24px) saturate(1.2); animation: pickerIn .22s var(--ease-out) both; }
+.picker-popover__items { min-height: 0; flex: 1; padding: 5px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; touch-action: pan-y; }
+.picker-option { width: 100%; min-height: 44px; display: flex; align-items: center; gap: 9px; padding: 5px 8px; border-radius: 8px; background: transparent; text-align: left; }
 .picker-option:hover { background: var(--surface-hover); }
 .picker-option.is-selected { background: var(--surface-active); }
 .picker-option__radio { flex: none; display: grid; place-items: center; width: 16px; height: 16px; border: 1px solid var(--line-strong); border-radius: 50%; }
@@ -388,7 +385,7 @@ button.dock-status:hover { border-color: var(--line-accent); background: var(--s
 .picker-option.is-selected .picker-option__radio i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px rgba(var(--accent-rgb),.65); }
 .picker-option__copy { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 .picker-option__copy b { color: var(--text); font-size: 11px; font-weight: 500; }
-.picker-option__copy small { color: var(--text-3); font-size: 9px; }
+.picker-option__copy small { overflow: hidden; color: var(--text-3); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .picker-option em { padding: 3px 5px; border-radius: 5px; background: rgba(var(--accent-rgb),.1); color: var(--accent); font-size: 8px; font-style: normal; }
 
 .palette-backdrop,.modal-backdrop{position:fixed;z-index:100;inset:0;background:rgba(0,0,0,.4);backdrop-filter:blur(5px);animation:fadeIn .15s both}.palette-backdrop[hidden],.modal-backdrop[hidden]{display:none}
