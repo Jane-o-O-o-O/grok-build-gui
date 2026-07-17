@@ -4,16 +4,23 @@
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
   const api = window.grokDesktop || null;
+  const platform = api?.platform || "web";
+  document.documentElement.classList.add(`platform-${platform}`);
   const STORAGE_KEY = "grok-desktop-state-v1";
+  const PERMISSION_MODES = {
+    auto: { label: "智能审批", nativeValue: "auto" },
+    dontAsk: { label: "严格拒绝", nativeValue: "default" },
+    "always-approve": { label: "完全访问", nativeValue: "always-approve" }
+  };
 
   const defaultState = {
-    cwd: "E:\\interesting\\grok-build-kunkun",
+    cwd: "",
     theme: "dark",
     model: "auto",
     modelLabel: "自动模型",
     effort: "high",
     effortLabel: "高思考",
-    alwaysApprove: false,
+    permissionMode: "auto",
     activeThreadId: null,
     threads: [],
     attachments: [],
@@ -215,10 +222,22 @@
   let fileTreeCache = new Map();
   let activeWorkspaceFile = null;
 
+  function normalizePermissionMode(value) {
+    if (value === "always-approve" || value === "bypassPermissions") return "always-approve";
+    if (value === "dontAsk" || value === "default" || value === "ask") return "dontAsk";
+    return "auto";
+  }
+
+  function nativePermissionMode(value) {
+    return PERMISSION_MODES[normalizePermissionMode(value)].nativeValue;
+  }
+
   function loadState() {
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
       const merged = { ...defaultState, ...saved, attachments: [] };
+      merged.permissionMode = normalizePermissionMode(saved?.permissionMode || (saved?.alwaysApprove ? "always-approve" : "auto"));
+      delete merged.alwaysApprove;
       if (!Array.isArray(merged.dockTabs) || !merged.dockTabs.length) merged.dockTabs = structuredClone(defaultState.dockTabs);
       merged.dockTabs = merged.dockTabs
         .filter((tab) => tab && tab.type !== "review")
@@ -253,6 +272,34 @@
   function saveStateSoon() {
     clearTimeout(saveStateTimer);
     saveStateTimer = setTimeout(() => saveState(), 320);
+  }
+
+  async function resolveWorkspaceState() {
+    if (!api?.resolveWorkspace) return;
+
+    const primary = await api.resolveWorkspace(state.cwd);
+    if (!primary?.cwd) return;
+    const fallback = primary.cwd;
+    let changed = state.cwd !== primary.cwd;
+    state.cwd = primary.cwd;
+
+    const workspaceOwners = [
+      ...(Array.isArray(state.threads) ? state.threads : []),
+      ...(Array.isArray(state.dockTabs) ? state.dockTabs.filter((tab) => typeof tab.cwd === "string") : [])
+    ];
+    const paths = [...new Set(workspaceOwners.map((item) => item.cwd).filter(Boolean))];
+    const resolutions = new Map(await Promise.all(paths.map(async (cwd) => [cwd, await api.resolveWorkspace(cwd)])));
+
+    for (const owner of workspaceOwners) {
+      const resolved = resolutions.get(owner.cwd);
+      const next = resolved?.valid ? resolved.cwd : fallback;
+      if (owner.cwd !== next) {
+        owner.cwd = next;
+        changed = true;
+      }
+    }
+
+    if (changed) saveState();
   }
 
   function uid() {
@@ -370,7 +417,7 @@
     const status = toolStatus(message.status, message.exitCode);
     if (status === "completed") return "已完成";
     if (status === "failed") return message.status === "cancelled" ? "已停止" : "执行异常";
-    if (status === "waiting_permission") return "等待确认";
+    if (status === "waiting_permission") return "权限判定";
     if (status === "in_progress") return "执行中";
     return "准备中";
   }
@@ -450,20 +497,10 @@
     </details>`;
   }
 
-  function toolPermissionActions(message) {
+  function toolPermissionNotice(message) {
     if (toolStatus(message.status, message.exitCode) !== "waiting_permission") return "";
-    const options = Array.isArray(message.permissionOptions) ? message.permissionOptions : [];
-    const allowOnce = options.find((item) => item.kind === "allow_once") || options.find((item) => /allow.?once|yes|允许一次/i.test(`${item.optionId} ${item.name}`));
-    const allowAlways = options.find((item) => item.kind === "allow_always") || options.find((item) => /allow.?always|始终|always/i.test(`${item.optionId} ${item.name}`));
-    const reject = options.find((item) => item.kind === "reject_once" || item.kind === "reject_always") || options.find((item) => /reject|deny|拒绝|否/i.test(`${item.optionId} ${item.name}`));
-    const buttons = [];
-    if (allowOnce) buttons.push(`<button type="button" class="tool-action tool-action--primary" data-tool-permission="option" data-option-id="${escapeHtml(allowOnce.optionId)}" data-tool-id="${escapeHtml(message.id)}" data-tool-call-id="${escapeHtml(message.toolCallId || "")}">允许一次</button>`);
-    else buttons.push(`<button type="button" class="tool-action tool-action--primary" data-tool-permission="allow" data-tool-id="${escapeHtml(message.id)}" data-tool-call-id="${escapeHtml(message.toolCallId || "")}">允许一次</button>`);
-    if (allowAlways) buttons.push(`<button type="button" class="tool-action" data-tool-permission="option" data-option-id="${escapeHtml(allowAlways.optionId)}" data-tool-id="${escapeHtml(message.id)}" data-tool-call-id="${escapeHtml(message.toolCallId || "")}" data-set-auto="1">始终允许</button>`);
-    buttons.push(`<button type="button" class="tool-action tool-action--danger" data-tool-permission="deny" data-option-id="${escapeHtml(reject?.optionId || "")}" data-tool-id="${escapeHtml(message.id)}" data-tool-call-id="${escapeHtml(message.toolCallId || "")}">拒绝</button>`);
     return `<div class="tool-card__actions">
-      <p>Grok 需要你的确认后才能继续执行此工具。</p>
-      <div class="tool-card__action-row">${buttons.join("")}</div>
+      <p>此操作正在由 CLI 权限策略判定；无法自动批准时会被拒绝。</p>
     </div>`;
   }
 
@@ -485,7 +522,7 @@
         <span class="tool-card__chevron"><svg><use href="#i-chevron"/></svg></span>
       </summary>
       <div class="tool-card__body">
-        ${toolPermissionActions(message)}
+        ${toolPermissionNotice(message)}
         ${message.description ? `<p class="tool-card__description">${escapeHtml(message.description)}</p>` : ""}
         ${locationLine ? `<p class="tool-card__description">涉及 ${escapeHtml(locationLine)}</p>` : ""}
         ${input ? `<section><header>输入</header><pre>${escapeHtml(input)}</pre></section>` : ""}
@@ -503,7 +540,7 @@
     const waiting = tools.some((tool) => toolStatus(tool.status, tool.exitCode) === "waiting_permission");
     const doneCount = tools.filter((tool) => toolStatus(tool.status, tool.exitCode) === "completed").length;
     const open = waiting || liveCount > 0 || failedCount > 0;
-    const label = waiting ? "等待确认" : liveCount ? `执行中 ${doneCount}/${tools.length}` : failedCount ? `${failedCount} 步异常` : `已完成 ${tools.length} 步`;
+    const label = waiting ? "权限判定" : liveCount ? `执行中 ${doneCount}/${tools.length}` : failedCount ? `${failedCount} 步异常` : `已完成 ${tools.length} 步`;
     return `<section class="tool-steps ${open ? "is-open" : ""} ${waiting ? "is-waiting" : ""} ${liveCount ? "is-live" : ""}" data-tool-group>
       <button type="button" class="tool-steps__summary" data-tool-group-toggle>
         <span class="tool-steps__signal">${liveCount || waiting ? "<i></i>" : '<svg><use href="#i-check"/></svg>'}</span>
@@ -593,20 +630,6 @@
     return [...document.querySelectorAll("details.tool-card[data-tool-call-id]")].find((el) => el.dataset.toolCallId === toolCallId) || null;
   }
 
-  function bindToolPermissionButtons(root = document) {
-    $$("[data-tool-permission]", root).forEach((button) => button.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      handleToolPermission(
-        button.dataset.toolPermission,
-        button.dataset.toolId,
-        button.dataset.optionId || "",
-        button.dataset.toolCallId || "",
-        button.dataset.setAuto === "1"
-      );
-    }));
-  }
-
   function trailingToolRun(messages = []) {
     const tools = [];
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -639,7 +662,6 @@
       const body = card.querySelector(".tool-card__body");
       if (body && nextBody) {
         body.innerHTML = nextBody.innerHTML;
-        bindToolPermissionButtons(body);
       }
     }
     return true;
@@ -1217,7 +1239,7 @@
       renderSideTaskPane(tab, pane); return;
     }
     const sharedPrompt = `你正在 Grok Build 的侧边对话中并行处理任务。使用同一项目记忆，并参考下面主对话的最新上下文；直接完成侧边任务。\n\n<主对话最新上下文>\n${mainConversationContext()}\n</主对话最新上下文>\n\n<侧边任务>\n${prompt}\n</侧边任务>`;
-    const result = await api.sendPrompt({ clientId: tab.id, prompt: sharedPrompt, cwd: tab.cwd || state.cwd, sessionId: tab.sessionId, model: state.model, effort: state.effort, alwaysApprove: state.alwaysApprove, attachments: [] });
+    const result = await api.sendPrompt({ clientId: tab.id, prompt: sharedPrompt, cwd: tab.cwd || state.cwd, sessionId: tab.sessionId, model: state.model, effort: state.effort, permissionMode: state.permissionMode, attachments: [] });
     if (!result.ok) { assistant.text = `启动 Grok 时出现问题：${result.error}`; finishSideTask(tab, "启动失败"); return; }
     tab.runId = result.runId; renderSideTaskPane(tab, pane); saveState();
   }
@@ -1569,11 +1591,10 @@
   }
 
   function updateSwitches() {
-    $("#settingsApproval")?.setAttribute("aria-checked", String(state.alwaysApprove));
     const modeButton = $("#agentModeButton");
     const modeLabel = $("#agentModeLabel");
-    if (modeLabel) modeLabel.textContent = state.alwaysApprove ? "完全访问" : "需要审批";
-    modeButton?.classList.toggle("is-auto", Boolean(state.alwaysApprove));
+    if (modeLabel) modeLabel.textContent = PERMISSION_MODES[state.permissionMode].label;
+    modeButton?.classList.toggle("is-elevated", state.permissionMode === "always-approve");
     modeButton?.setAttribute("aria-expanded", "false");
     $("#themeSelect").value = state.theme;
   }
@@ -1581,21 +1602,23 @@
   function openAgentModePicker(anchor) {
     openPicker(anchor, {
       align: "right",
-      selected: state.alwaysApprove ? "auto" : "agent",
+      selected: state.permissionMode,
       items: [
-        { id: "agent", label: "需要审批" },
-        { id: "auto", label: "完全访问" }
+        { id: "auto", label: "智能审批" },
+        { id: "dontAsk", label: "严格拒绝" },
+        { id: "always-approve", label: "完全访问" }
       ],
       onSelect: async (item) => {
-        const next = item.id === "auto";
-        if (next === state.alwaysApprove) return;
-        state.alwaysApprove = next;
+        const previous = state.permissionMode;
+        const next = normalizePermissionMode(item.id);
+        if (next === previous) return;
+        state.permissionMode = next;
         saveState();
         updateSwitches();
         if (api) {
-          const result = await api.setNativeSetting("permission_mode", next ? "always-approve" : "ask");
+          const result = await api.setNativeSetting("permission_mode", nativePermissionMode(next));
           if (!result.ok) {
-            state.alwaysApprove = !next;
+            state.permissionMode = previous;
             saveState();
             updateSwitches();
             toast("模式保存失败", result.error);
@@ -1605,7 +1628,7 @@
           nativeConfig.raw = result.raw;
           if ($("#rawConfigEditor")) $("#rawConfigEditor").value = result.raw || "";
         }
-        toast(next ? "完全访问" : "需要审批", "");
+        toast(PERMISSION_MODES[next].label, "");
       }
     });
   }
@@ -1620,59 +1643,7 @@
     $$("[data-tool-group-toggle]").forEach((button) => button.addEventListener("click", () => {
       button.closest("[data-tool-group]")?.classList.toggle("is-open");
     }));
-    $$("[data-tool-permission]").forEach((button) => button.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      handleToolPermission(
-        button.dataset.toolPermission,
-        button.dataset.toolId,
-        button.dataset.optionId || "",
-        button.dataset.toolCallId || "",
-        button.dataset.setAuto === "1"
-      );
-    }));
     $$(".message__body").forEach(bindMessageBody);
-  }
-
-  async function handleToolPermission(action, toolId, optionId = "", toolCallId = "", setAuto = false) {
-    const thread = activeThread();
-    const tool = thread?.messages.find((message) => message.id === toolId && message.kind === "tool");
-    const callId = toolCallId || tool?.toolCallId;
-    if (action === "deny") {
-      if (api && activeRun && callId) {
-        if (optionId) await api.respondPermission({ runId: activeRun, toolCallId: callId, optionId });
-        else await api.respondPermission({ runId: activeRun, toolCallId: callId, cancelled: true });
-      }
-      if (tool) { tool.status = "failed"; tool.output = tool.output || "用户拒绝了此工具调用"; }
-      saveState();
-      scheduleToolRender();
-      toast("已拒绝", "已拒绝该工具调用");
-      return;
-    }
-    if (setAuto && !state.alwaysApprove) {
-      state.alwaysApprove = true;
-      saveState();
-      updateSwitches();
-      if (api) {
-        const result = await api.setNativeSetting("permission_mode", "always-approve");
-        if (result.ok) {
-          nativeConfig.values.permission_mode = result.value;
-          nativeConfig.raw = result.raw;
-        }
-      }
-    }
-    if (api && activeRun && callId) {
-      const resolvedOption = optionId || action;
-      const result = await api.respondPermission({ runId: activeRun, toolCallId: callId, optionId: resolvedOption === "allow" ? "allow-once" : resolvedOption });
-      if (!result.ok) {
-        toast("无法提交确认", result.error || "权限通道暂时不可用");
-        return;
-      }
-    }
-    if (tool) tool.status = "in_progress";
-    saveState();
-    scheduleToolRender();
-    setSessionStateText("正在执行工具");
   }
 
   function updateTurnProgress() {
@@ -1684,7 +1655,7 @@
     const waiting = tools.some((tool) => toolStatus(tool.status, tool.exitCode) === "waiting_permission");
     const live = tools.filter(toolIsLive).length;
     const done = tools.filter((tool) => toolStatus(tool.status, tool.exitCode) === "completed").length;
-    if (waiting) setSessionStateText("等待工具确认");
+    if (waiting) setSessionStateText("权限策略判定");
     else if (live) setSessionStateText(`执行步骤 ${done}/${tools.length}`);
   }
 
@@ -1719,7 +1690,7 @@
     return ({
       waiting_for_model: "等待模型响应", streaming_reasoning: "Grok 正在思考",
       streaming_text: "Grok 正在回答", tool_execution: "正在执行工具",
-      permission_prompt: "等待工具确认", compacting: "正在整理上下文"
+      permission_prompt: "权限策略判定", compacting: "正在整理上下文"
     })[phase] || "Grok 正在工作";
   }
 
@@ -1806,7 +1777,7 @@
       simulatePrompt(prompt);
       return;
     }
-    const result = await api.sendPrompt({ clientId: "main", prompt, cwd: thread.cwd || state.cwd, sessionId: thread.sessionId, model: state.model, effort: state.effort, alwaysApprove: state.alwaysApprove, attachments: state.attachments });
+    const result = await api.sendPrompt({ clientId: "main", prompt, cwd: thread.cwd || state.cwd, sessionId: thread.sessionId, model: state.model, effort: state.effort, permissionMode: state.permissionMode, attachments: state.attachments });
     if (!result.ok) { activeAssistantMessage.text = `启动 Grok 时出现问题：${result.error}`; toast("Runtime 错误", result.error); finishRun("启动失败"); renderMessages(); return; }
     activeRun = result.runId;
     state.attachments = [];
@@ -1841,31 +1812,6 @@
       const thread = activeThread(); if (thread) thread.sessionId = event.sessionId || thread.sessionId;
     } else if (event.type === "tool_call" || event.type === "tool_update") {
       mainToolEvent(event);
-    } else if (event.type === "permission_prompt") {
-      const thread = activeThread();
-      if (!thread) return;
-      let tool = thread.messages.find((message) => message.kind === "tool" && message.toolCallId === event.toolCallId);
-      if (!tool) {
-        if (activeAssistantMessage && !activeAssistantMessage.text && !activeAssistantMessage.thought) {
-          const index = thread.messages.indexOf(activeAssistantMessage);
-          if (index >= 0) thread.messages.splice(index, 1);
-        }
-        tool = createToolMessage({
-          toolCallId: event.toolCallId,
-          title: event.title,
-          toolName: event.title,
-          status: "waiting_permission",
-          timestamp: Date.now()
-        });
-        thread.messages.push(tool);
-        activeAssistantMessage = null;
-      }
-      tool.status = "waiting_permission";
-      tool.permissionOptions = Array.isArray(event.options) ? event.options : [];
-      if (event.title) tool.title = event.title;
-      saveStateSoon();
-      scheduleToolRender({ forceFull: true });
-      setSessionStateText("等待工具确认");
     } else if (event.type === "lifecycle") {
       handleMainLifecycle(event.event);
     } else if (event.type === "diagnostic") {
@@ -1923,14 +1869,6 @@
     state.attachments.push(...files.filter((file) => !state.attachments.includes(file))); renderAttachments();
   }
 
-  async function toggleApproval() {
-    state.alwaysApprove = !state.alwaysApprove; saveState(); updateSwitches();
-    if (api) {
-      const result = await api.setNativeSetting("permission_mode", state.alwaysApprove ? "always-approve" : "ask");
-      if (!result.ok) { state.alwaysApprove = !state.alwaysApprove; saveState(); updateSwitches(); toast("权限设置保存失败", result.error); }
-      else { nativeConfig.values.permission_mode = result.value; nativeConfig.raw = result.raw; $("#rawConfigEditor").value = result.raw || ""; }
-    }
-  }
   function openPalette() {
     const backdrop = $("#paletteBackdrop"); backdrop.hidden = false; $("#paletteInput").value = ""; renderPalette(""); setTimeout(() => $("#paletteInput").focus(), 0);
   }
@@ -2116,7 +2054,7 @@
     nativeConfig.values[id] = result.value;
     if (result.raw != null) { nativeConfig.raw = result.raw; $("#rawConfigEditor").value = result.raw; }
     if (control.matches("button")) control.setAttribute("aria-checked", String(Boolean(result.value)));
-    if (id === "permission_mode") { state.alwaysApprove = result.value === "always-approve"; saveState(); updateSwitches(); }
+    if (id === "permission_mode") { state.permissionMode = normalizePermissionMode(result.value); saveState(); updateSwitches(); }
   }
 
   const integrationCatalog = {
@@ -2200,7 +2138,7 @@
     if (api) nativeConfig = await api.readNativeConfig();
     $("#nativeConfigPath").textContent = nativeConfig.path;
     $("#rawConfigEditor").value = nativeConfig.raw || "";
-    state.alwaysApprove = nativeConfig.values?.permission_mode === "always-approve";
+    state.permissionMode = normalizePermissionMode(nativeConfig.values?.permission_mode);
     saveState(); updateSwitches(); renderNativeSettings(); renderIntegrationSummary();
   }
 
@@ -2699,7 +2637,6 @@
       event.stopPropagation();
       openAgentModePicker(event.currentTarget);
     });
-    $("#settingsApproval")?.addEventListener("click", toggleApproval);
     $("#settingsButton").addEventListener("click", () => openSettings("general")); $$('[data-close-modal]').forEach((button) => button.addEventListener("click", closeSettings));
     $("#settingsBackdrop").addEventListener("click", (event) => { if (event.target === $("#settingsBackdrop")) closeSettings(); });
     $("#paletteBackdrop").addEventListener("click", (event) => { if (event.target === $("#paletteBackdrop")) closePalette(); });
@@ -2805,8 +2742,9 @@
     if (event.kind === "error") { stopAuthPolling(); toast("Grok 登录状态", event.text); }
   });
   renderDockTabPicker();
-  renderAll();
   (async () => {
+    await resolveWorkspaceState();
+    renderAll();
     const runtimePromise = detectRuntime();
     await Promise.all([loadSavedProviders(), loadNativeConfig(), refreshAuthInfo()]);
     await runtimePromise;

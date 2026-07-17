@@ -3,7 +3,7 @@ const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const { AcpAgentRun } = require("./acp-agent.cjs");
+const { buildCliArgs, effectivePrompt } = require("./cli-runtime.cjs");
 const {
   discoverModels,
   makeProviderId,
@@ -20,7 +20,6 @@ const { readAccountInfo } = require("./account-info.cjs");
 const { createGitBranch, readGitInfo, switchGitBranch } = require("./git-workspace.cjs");
 
 const activeRuns = new Map();
-const acpRuns = new Map();
 const runClients = new Map();
 const terminalSessions = new Map();
 const sessionUpdateBridges = new Map();
@@ -312,26 +311,10 @@ function dispatchLine(runId, line, source) {
   }
 }
 
-function effectivePrompt(payload) {
-  let prompt = String(payload.prompt || "");
-  if (Array.isArray(payload.attachments) && payload.attachments.length) {
-    const attachmentNote = payload.attachments.map((file) => `- ${file}`).join("\n");
-    prompt += `\n\nAttached local files:\n${attachmentNote}`;
-  }
-  return prompt;
-}
-
-function buildArgs(payload) {
-  const args = ["--cwd", payload.cwd, "-p", effectivePrompt(payload), "--output-format", "streaming-json"];
-  if (payload.sessionId) args.push("--resume", payload.sessionId);
-  if (payload.model && payload.model !== "auto") args.push("--model", payload.model);
-  if (payload.effort && payload.effort !== "auto") args.push("--reasoning-effort", payload.effort);
-  if (payload.alwaysApprove) args.push("--always-approve");
-  return args;
-}
-
 function sessionsRootForWorkspace(cwd) {
-  return path.join(grokHomePath(), "sessions", encodeURIComponent(path.resolve(cwd)));
+  let resolved;
+  try { resolved = fs.realpathSync(cwd); } catch { resolved = path.resolve(cwd); }
+  return path.join(grokHomePath(), "sessions", encodeURIComponent(resolved));
 }
 
 function sessionFiles(root) {
@@ -444,6 +427,10 @@ function startSessionUpdateBridge(runId, payload) {
   const poll = () => {
     if (stopped || polling) return; polling = true;
     try {
+      if (!bound && boundSessionId) {
+        bound = sessionFiles(root).find((item) => item.sessionId === boundSessionId) || null;
+        if (bound) emit({ runId, type: "session_bound", sessionId: boundSessionId });
+      }
       const candidates = bound ? [bound] : sessionFiles(root);
       for (const candidate of candidates) {
         consume(candidate.updates, "updates", candidate);
@@ -628,8 +615,18 @@ ipcMain.handle("shell:external", async (_event, target) => {
 });
 
 function validWorkspace(cwd) {
-  return typeof cwd === "string" && fs.existsSync(cwd) && fs.statSync(cwd).isDirectory();
+  if (typeof cwd !== "string" || !cwd) return false;
+  try {
+    return fs.statSync(cwd).isDirectory();
+  } catch {
+    return false;
+  }
 }
+
+ipcMain.handle("workspace:resolve", (_event, cwd) => {
+  if (validWorkspace(cwd)) return { cwd: fs.realpathSync(cwd), valid: true };
+  return { cwd: app.getPath("home"), valid: false };
+});
 
 ipcMain.handle("git:info", (_event, cwd) => readGitInfo(cwd));
 ipcMain.handle("git:switch", (_event, payload) => switchGitBranch(payload?.cwd, payload?.branch));
@@ -790,55 +787,40 @@ ipcMain.handle("grok:prompt", async (_event, payload) => {
   if (!payload || typeof payload.prompt !== "string" || !payload.prompt.trim()) {
     return { ok: false, error: "Prompt is empty." };
   }
-  if (!payload.cwd || !fs.existsSync(payload.cwd)) return { ok: false, error: "Workspace path does not exist." };
+  if (!validWorkspace(payload.cwd)) return { ok: false, error: "Workspace path does not exist." };
 
   const runId = crypto.randomUUID();
+  const launchSessionId = payload.sessionId || crypto.randomUUID();
   runClients.set(runId, String(payload.clientId || "main"));
+  const sessionBridge = startSessionUpdateBridge(runId, { ...payload, sessionId: launchSessionId });
   const runtimeEnv = await environmentWithSystemProxy(runtimeEnvironment(), runtimeTargetUrl(payload.model));
-  const run = new AcpAgentRun({
-    binary,
+  const child = spawn(binary, buildCliArgs(payload, launchSessionId), {
     cwd: payload.cwd,
+    windowsHide: true,
     env: {
       ...runtimeEnv,
       GROK_LAUNCH_SOURCE: "grok-desktop",
       GROK_CLIENT_NAME: "grok-desktop"
     },
-    alwaysApprove: Boolean(payload.alwaysApprove),
-    model: payload.model,
-    effort: payload.effort,
-    sessionId: payload.sessionId || null,
-    prompt: effectivePrompt(payload)
+    stdio: ["ignore", "pipe", "pipe"]
   });
-  run.on("event", (data) => emit({ runId, ...data }));
-  const child = run.start();
   activeRuns.set(runId, child);
-  acpRuns.set(runId, run);
-  child.on("exit", () => {
-    acpRuns.delete(runId);
+  parseLines(runId, child.stdout, "stdout");
+  parseLines(runId, child.stderr, "stderr");
+  child.on("error", (error) => {
+    emit({ runId, type: "error", message: error.message });
+    sessionBridge.stop(250);
+  });
+  child.on("exit", (code, signal) => {
+    emit({ runId, type: "process_exit", code, signal });
+    sessionBridge.stop(900);
     activeRuns.delete(runId);
     setTimeout(() => runClients.delete(runId), 1_200);
   });
   return { ok: true, runId };
 });
 
-ipcMain.handle("grok:permission-respond", async (_event, payload) => {
-  const run = acpRuns.get(payload?.runId);
-  if (!run) return { ok: false, error: "当前没有可应答的 Agent 会话" };
-  return run.respondPermission({
-    toolCallId: payload?.toolCallId,
-    optionId: payload?.optionId,
-    cancelled: Boolean(payload?.cancelled)
-  });
-});
-
 ipcMain.handle("grok:cancel", async (_event, runId) => {
-  const run = acpRuns.get(runId);
-  if (run) {
-    run.cancel();
-    acpRuns.delete(runId);
-    activeRuns.delete(runId);
-    return true;
-  }
   const child = activeRuns.get(runId);
   if (!child) return false;
   child.kill();

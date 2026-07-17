@@ -5,7 +5,7 @@ const vm = require("node:vm");
 const root = path.resolve(__dirname, "..");
 const required = [
   "main.cjs", "preload.cjs", "package.json", "renderer/index.html",
-  "provider-config.cjs", "native-config.cjs", "account-info.cjs", "git-workspace.cjs", "acp-agent.cjs", "scripts/test-providers.cjs", "scripts/test-native-config.cjs", "scripts/test-account-info.cjs", "scripts/test-git-workspace.cjs",
+  "provider-config.cjs", "native-config.cjs", "account-info.cjs", "git-workspace.cjs", "cli-runtime.cjs", "scripts/test-providers.cjs", "scripts/test-native-config.cjs", "scripts/test-account-info.cjs", "scripts/test-git-workspace.cjs", "scripts/test-cli-runtime.cjs",
   "renderer/tokens.css", "renderer/app.css", "renderer/app.js",
   "renderer/assets/GrokSans-Regular.woff2", "renderer/assets/GrokSans-Medium.woff2",
   "renderer/assets/grok-mark.png", "build/icon.png"
@@ -15,14 +15,14 @@ for (const file of required) {
   if (!fs.existsSync(target) || fs.statSync(target).size === 0) throw new Error(`Missing asset: ${file}`);
 }
 
-for (const file of ["main.cjs", "preload.cjs", "native-config.cjs", "account-info.cjs", "git-workspace.cjs", "acp-agent.cjs", "renderer/app.js", "scripts/serve.cjs"]) {
+for (const file of ["main.cjs", "preload.cjs", "native-config.cjs", "account-info.cjs", "git-workspace.cjs", "cli-runtime.cjs", "renderer/app.js", "scripts/serve.cjs"]) {
   new vm.Script(fs.readFileSync(path.join(root, file), "utf8"), { filename: file });
 }
 
 const html = fs.readFileSync(path.join(root, "renderer/index.html"), "utf8");
 const js = fs.readFileSync(path.join(root, "renderer/app.js"), "utf8");
 const css = fs.readFileSync(path.join(root, "renderer/app.css"), "utf8") + fs.readFileSync(path.join(root, "renderer/tokens.css"), "utf8");
-const backend = fs.readFileSync(path.join(root, "main.cjs"), "utf8") + fs.readFileSync(path.join(root, "preload.cjs"), "utf8") + fs.readFileSync(path.join(root, "acp-agent.cjs"), "utf8");
+const backend = fs.readFileSync(path.join(root, "main.cjs"), "utf8") + fs.readFileSync(path.join(root, "preload.cjs"), "utf8") + fs.readFileSync(path.join(root, "cli-runtime.cjs"), "utf8");
 for (const ref of [...html.matchAll(/(?:href|src)="([^"]+\.(?:css|js|woff2))"/g)].map((match) => match[1])) {
   if (!fs.existsSync(path.join(root, "renderer", ref))) throw new Error(`Broken HTML asset: ${ref}`);
 }
@@ -35,8 +35,11 @@ for (const selector of [".app-shell", ".sidebar", ".conversation", ".composer", 
 for (const token of ["--accent", "--surface", "--text", "--line", "--shadow-composer"]) {
   if (!css.includes(token)) throw new Error(`Design token missing: ${token}`);
 }
-for (const feature of ["scheduleStreamingRender", "scheduleSideStreamingRender", "requestAnimationFrame", "openPicker", "picker-popover", "dock-status--workspace", "dock-status--local", "grokLogoShimmer", "assets/grok-mark.png", "discoverProviderModels", "nativeSettingGroups", "config:save-raw", "auth:login", "onAuthEvent", "git:info", "switchGitBranch", "branch-popover", "dock-tabbar", "terminal:create", "onTerminalEvent", "side-task-composer", "data-browser-view", "workspace:list", "providers:discover", "startSessionUpdateBridge", "tool_call_update", "toolMessageMarkup", "thinking-block", "permission_requested", "runtime:models", "hydrateRuntimeModels", "settings-search-hit", "settingsSearchCatalog", "integration-detail-modal", "openIntegrationDetail", "slash-popover", "slashCommands", "file-explorer", "file-tree", "pane-resizer", "bindPaneResizer", "applyPaneWidths", "tool-steps", "toolGroupMarkup", "handleToolPermission", "ensureActiveAssistant", "updateTurnProgress", "stream-caret", "agent-mode-picker", "openAgentModePicker", "permission_prompt", "respondPermission", "AcpAgentRun", "agent stdio", "session/request_permission", "clientIdentifier"]) {
+for (const feature of ["scheduleStreamingRender", "scheduleSideStreamingRender", "requestAnimationFrame", "openPicker", "picker-popover", "dock-status--workspace", "dock-status--local", "grokLogoShimmer", "assets/grok-mark.png", "discoverProviderModels", "nativeSettingGroups", "config:save-raw", "auth:login", "onAuthEvent", "git:info", "switchGitBranch", "branch-popover", "dock-tabbar", "terminal:create", "onTerminalEvent", "side-task-composer", "data-browser-view", "workspace:list", "providers:discover", "startSessionUpdateBridge", "tool_call_update", "toolMessageMarkup", "thinking-block", "permission_requested", "runtime:models", "hydrateRuntimeModels", "settings-search-hit", "settingsSearchCatalog", "integration-detail-modal", "openIntegrationDetail", "slash-popover", "slashCommands", "file-explorer", "file-tree", "pane-resizer", "bindPaneResizer", "applyPaneWidths", "tool-steps", "toolGroupMarkup", "ensureActiveAssistant", "updateTurnProgress", "stream-caret", "agent-mode-picker", "openAgentModePicker", "permissionMode", "buildCliArgs", "streaming-json", "platform-darwin"]) {
   if (!`${html}\n${js}\n${css}\n${backend}`.includes(feature)) throw new Error(`Desktop interaction missing: ${feature}`);
+}
+for (const removed of ["AcpAgentRun", "agent stdio", "grok:permission-respond", "respondPermission", "handleToolPermission"]) {
+  if (`${backend}\n${js}`.includes(removed)) throw new Error(`Removed ACP interaction returned: ${removed}`);
 }
 const iconGenerator = fs.readFileSync(path.join(root, "scripts/generate-icon.py"), "utf8");
 if (!iconGenerator.includes("logo07.txt") || !iconGenerator.includes("logo24.txt") || !iconGenerator.includes("BRAILLE_DOTS")) {
@@ -44,6 +47,12 @@ if (!iconGenerator.includes("logo07.txt") || !iconGenerator.includes("logo24.txt
 }
 for (const removed of ['id="composerHint"', "profile-row", "Local workspace"]) {
   if (`${html}\n${js}`.includes(removed)) throw new Error(`Removed desktop element returned: ${removed}`);
+}
+if (/[A-Z]:\\\\[^"'\n]+/.test(js) || /[A-Z]:\\[^<\n]+/.test(html)) {
+  throw new Error("Platform-specific workspace path is hard-coded in the renderer");
+}
+for (const feature of ["workspace:resolve", "resolveWorkspace", "resolveWorkspaceState"]) {
+  if (!`${backend}\n${js}`.includes(feature)) throw new Error(`Workspace fallback wiring missing: ${feature}`);
 }
 
 console.log(`Verified ${required.length} desktop assets, renderer wiring, Grok design tokens, and JavaScript syntax.`);

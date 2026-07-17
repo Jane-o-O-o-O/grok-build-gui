@@ -23,7 +23,7 @@ const SETTINGS = [
   { id: "render_mermaid", section: "ui", key: "render_mermaid", type: "enum", default: "auto", choices: ["auto", "on", "off"] },
   { id: "display_refresh_auto_cadence", section: "ui.display_refresh", key: "auto_cadence_enabled", type: "boolean", default: false },
 
-  { id: "permission_mode", section: "ui", key: "permission_mode", type: "enum", default: "ask", choices: ["default", "ask", "auto", "always-approve"] },
+  { id: "permission_mode", section: "ui", key: "permission_mode", type: "enum", default: "auto", choices: ["default", "ask", "auto", "always-approve"] },
   { id: "remember_tool_approvals", section: "ui", key: "remember_tool_approvals", type: "boolean", default: false },
   { id: "default_selected_permission", section: "ui", key: "default_selected_permission", type: "enum", default: "always_allow_all_sessions", choices: ["always_allow_all_sessions", "allow_command_always", "allow_once", "reject"] },
   { id: "ask_question_timeout", section: "toolset.ask_user_question", key: "timeout_enabled", type: "boolean", default: true },

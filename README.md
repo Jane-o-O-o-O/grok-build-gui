@@ -35,11 +35,11 @@ Search-friendly terms for this repository (also mirrored in GitHub **About** top
 
 ## 项目简介
 
-**Grok Build GUI**（仓库名：`grok-build-gui`）是面向 **Grok Build** / 官方 `grok` CLI·TUI Runtime 的桌面 GUI。它用 Electron 提供可视化 AI 编程工作区：流式对话、工具调用与审批、Git/文件工作台，并继续复用原生模型、权限、MCP、Skills、Plugins、Hooks、Memory、Worktree 与认证，而不是另起一套 Agent。
+**Grok Build GUI**（仓库名：`grok-build-gui`）是面向 **Grok Build** / 官方 `grok` CLI·TUI Runtime 的桌面 GUI。它用 Electron 提供可视化 AI 编程工作区：流式对话、工具调用与 CLI 权限策略、Git/文件工作台，并继续复用原生模型、权限、MCP、Skills、Plugins、Hooks、Memory、Worktree 与认证，而不是另起一套 Agent。
 
 它不是一套与 TUI 分离的 Agent 实现：
 
-- 对话由原生 `grok` Runtime 执行（含 `grok agent stdio` / ACP）；
+- 对话由原生 `grok -p --output-format streaming-json` Runtime 执行；
 - 多轮会话通过原生 `sessionId` 续接；
 - 设置直接读写 `~/.grok/config.toml`；
 - 账号信息来自原生 `~/.grok/auth.json`；
@@ -178,7 +178,7 @@ npm run dist
 - 文件附件
 - 模型弹出选择器
 - 思考档位弹出选择器
-- 自动批准开关
+- CLI 权限模式（智能审批 / 严格拒绝 / 完全访问）
 - 本地工作区状态
 - Runtime 在线状态
 

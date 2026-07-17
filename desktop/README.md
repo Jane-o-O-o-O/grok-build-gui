@@ -32,7 +32,7 @@ npm run pack
 
 ## 桌面工作区功能
 
-- 主对话和侧边任务会实时呈现原生 TUI 的思考过程、工具调用、权限等待、执行输入/输出、工作目录与退出代码；活动卡按真实执行顺序插入消息流，并支持折叠查看。
+- 主对话和侧边任务会实时呈现原生 TUI 的思考过程、工具调用、CLI 权限判定、执行输入/输出、工作目录与退出代码；活动卡按真实执行顺序插入消息流，并支持折叠查看。
 - 设置中的第三方模型支持自动探测 OpenAI 与 Anthropic 协议、获取模型列表并按勾选结果写入 `~/.grok/config.toml`。密钥由 Electron `safeStorage` 保存在桌面端数据目录，不写入 TOML 或 renderer storage。
 - 完整设置窗口直接读写原生 `~/.grok/config.toml`，提供 59 项类型化设置、搜索、分区导航、集成概览和原始 TOML 编辑器；每次写入会生成 `config.toml.desktop-backup`。
 - 左下角账号入口同时展示 Grok 登录身份、Runtime 在线状态和版本，并连接个人资料、完整设置、浏览器 OAuth 登录、退出登录与可见的 Runtime 重新检测流程。
@@ -55,4 +55,4 @@ npm run pack
 - 工程工作区、Git 分支、runtime 在线状态和工具许可作为一级信息；
 - Chromium renderer 保持 `contextIsolation`、sandbox 和无 Node 注入。
 
-会话历史保存在本地 renderer storage；附件仅在当前编辑状态保留，提交时以本地路径附加到 prompt。自动批准工具默认为关闭，可在右侧检查器或设置中开启。
+会话历史保存在本地 renderer storage；附件仅在当前编辑状态保留，提交时以本地路径附加到 prompt。权限选择会直接映射到 CLI：智能审批使用 `--permission-mode auto`，严格拒绝使用 `--permission-mode dontAsk`，完全访问使用 `--always-approve`。
