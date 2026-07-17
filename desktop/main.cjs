@@ -255,10 +255,16 @@ ipcMain.handle("config:reveal", () => {
 
 ipcMain.handle("auth:info", () => authInfo());
 
-ipcMain.handle("auth:login", () => {
+ipcMain.handle("auth:login", async () => {
   const binary = locateGrok();
   if (!binary) return { ok: false, error: "未检测到 Grok Runtime" };
-  if (activeAuthRun) return { ok: true, running: true };
+  const loginPage = "https://accounts.x.ai/sign-in?redirect=grok-com";
+  try {
+    await shell.openExternal(loginPage);
+  } catch (error) {
+    return { ok: false, error: `打开 Grok 登录页面失败：${error.message}` };
+  }
+  if (activeAuthRun) return { ok: true, running: true, browserOpened: true };
   const child = spawn(binary, ["login", "--oauth"], {
     cwd: app.getPath("home"), windowsHide: true,
     env: { ...process.env, ...providerEnvironment() }, stdio: ["ignore", "pipe", "pipe"]
@@ -268,13 +274,13 @@ ipcMain.handle("auth:login", () => {
     const text = String(chunk).replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("auth:event", { kind, text });
   };
-  send("browser", "Grok Runtime 正在默认浏览器中打开登录页面");
+  send("browser", "已在默认浏览器中打开 Grok 登录页面；Runtime 正在准备 OAuth 连接");
   child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
   child.stdout.on("data", (chunk) => send("output", chunk));
   child.stderr.on("data", (chunk) => send("output", chunk));
   child.on("error", (error) => { send("error", error.message); activeAuthRun = null; });
   child.on("exit", (code) => { send(code === 0 ? "complete" : "error", code === 0 ? "登录完成" : `登录进程退出：${code}`); activeAuthRun = null; });
-  return { ok: true, running: true };
+  return { ok: true, running: true, browserOpened: true };
 });
 
 ipcMain.handle("auth:logout", () => {
@@ -579,6 +585,7 @@ app.whenReady().then(createWindow);
 app.on("window-all-closed", () => {
   for (const child of activeRuns.values()) child.kill();
   for (const terminalId of [...terminalSessions.keys()]) closeTerminalSession(terminalId);
+  if (activeAuthRun) { activeAuthRun.kill(); activeAuthRun = null; }
   if (process.platform !== "darwin") app.quit();
 });
 app.on("activate", () => {
