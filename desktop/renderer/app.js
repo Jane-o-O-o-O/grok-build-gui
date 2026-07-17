@@ -288,7 +288,7 @@
     if (/edit|write|patch|replace/.test(value)) return "i-review";
     if (/task|agent|todo/.test(value)) return "i-tasks";
     if (/terminal|shell|bash|command|execute|run_/.test(value)) return "i-terminal";
-    return "i-command";
+    return "i-file";
   }
 
   function nestedToolValue(value, keys) {
@@ -610,8 +610,7 @@
 
   function initializeSideTaskPane(tab, pane) {
     tab.messages ||= [];
-    pane.innerHTML = `<div class="dock-pane__title side-task-head"><div><small>SHARED PROJECT MEMORY</small><h2>${escapeHtml(tab.title)}</h2></div><span><i></i>同步主对话</span></div>
-      <div class="side-task-context"><svg><use href="#i-memory"/></svg><span>共享 <b>${escapeHtml(basename(state.cwd))}</b> 记忆，并在每次发送时读取主对话的最新上下文</span></div>
+    pane.innerHTML = `<div class="dock-pane__title side-task-head"><div><small>SIDE TASK</small><h2>${escapeHtml(tab.title)}</h2></div></div>
       <div class="side-task-messages" data-side-messages></div>
       <form class="side-task-composer" data-side-form><textarea rows="1" data-side-input placeholder="在这个并行对话中继续任务…"></textarea><button type="submit" data-side-send title="发送"><svg><use href="#i-send"/></svg></button></form>`;
     const form = $("[data-side-form]", pane); const input = $("[data-side-input]", pane);
@@ -695,7 +694,7 @@
     const target = $("[data-side-messages]", pane);
     target.innerHTML = tab.messages?.length
       ? tab.messages.map((message) => sideTaskMessageMarkup(message, tab)).join("")
-      : `<div class="side-task-empty"><span class="grok-mark" aria-hidden="true"></span><h3>并行处理一个新任务</h3><p>这里和主对话使用同一工作区记忆，同时保留独立的会话与回答。</p></div>`;
+      : `<div class="side-task-empty"><span class="grok-mark" aria-hidden="true"></span><h3>并行处理一个新任务</h3><p>在这里开启独立会话，与主对话并行推进。</p></div>`;
     const button = $("[data-side-send]", pane);
     button.classList.toggle("is-stop", Boolean(tab.runId));
     button.innerHTML = `<svg><use href="#${tab.runId ? "i-stop" : "i-send"}"/></svg>`;
@@ -744,7 +743,7 @@
     renderSideTaskPane(tab, pane); saveState();
     if (!api) {
       tab.runId = `demo-${uid()}`;
-      assistant.text = `侧边任务已收到：**${prompt}**\n\n此对话已连接主对话上下文与同一项目记忆。`;
+      assistant.text = `侧边任务已收到：**${prompt}**`;
       setTimeout(() => finishSideTask(tab, "预览完成"), 350);
       renderSideTaskPane(tab, pane); return;
     }
@@ -1194,20 +1193,146 @@
   function closePalette() { $("#paletteBackdrop").hidden = true; }
   function renderPalette(query) {
     const actions = [
-      { title: "新建任务", meta: "⌘ N", icon: "i-plus", run: () => createThread() },
+      { title: "新建任务", meta: "Ctrl N", icon: "i-plus", run: () => createThread() },
       { title: "选择工作区", meta: basename(state.cwd), icon: "i-folder", run: chooseWorkspace },
-      { title: "切换任务脉络", meta: "⌘ ⇧ I", icon: "i-command", run: () => { state.inspectorOpen = !state.inspectorOpen; saveState(); updateLayout(); } },
-      { title: "桌面设置", meta: "⌘ ,", icon: "i-settings", run: openSettings }
+      { title: "切换任务脉络", meta: "Ctrl Shift I", icon: "i-panel", run: () => { state.inspectorOpen = !state.inspectorOpen; saveState(); updateLayout(); } },
+      { title: "桌面设置", meta: "Ctrl ,", icon: "i-settings", run: openSettings }
     ];
     const matches = [...actions, ...state.threads.map((thread) => ({ title: thread.title, meta: "历史任务", icon: "i-terminal", run: () => { state.activeThreadId = thread.id; saveState(); renderAll(); } }))].filter((item) => item.title.toLowerCase().includes(query.toLowerCase()));
     $("#paletteResults").innerHTML = `<div class="palette-group">快速操作</div>${matches.map((item, index) => `<button class="palette-item ${index === 0 ? "is-selected" : ""}" data-palette="${index}"><svg><use href="#${item.icon}"/></svg><span>${escapeHtml(item.title)}</span><small>${escapeHtml(item.meta)}</small></button>`).join("") || '<div class="context-empty">没有匹配项</div>'}`;
     $$('[data-palette]').forEach((button) => button.addEventListener("click", () => { matches[Number(button.dataset.palette)].run(); closePalette(); }));
   }
+  const settingPageTitles = {
+    account: "账号", general: "常规", models: "模型", appearance: "外观", input: "输入与交互",
+    agent: "Agent 与权限", tools: "工具", memory: "记忆", git: "Git 与 Worktree",
+    integrations: "集成", privacy: "数据与隐私", advanced: "配置文件"
+  };
   const settingTargetPages = {
     nativeGeneralSettings: "general", nativeModelSettings: "models", nativeAppearanceSettings: "appearance",
     nativeInputSettings: "input", nativeAgentSettings: "agent", nativeToolSettings: "tools",
     nativeMemorySettings: "memory", nativeGitSettings: "git", nativePrivacySettings: "privacy"
   };
+  let settingsSearchPage = "general";
+
+  function settingsSearchCatalog() {
+    const staticEntries = [
+      { id: "desktop-theme", page: "general", section: "常规", title: "桌面界面主题", description: "仅控制 Grok Build 桌面外观", anchor: "themeSelect" },
+      { id: "account-profile", page: "account", section: "账号", title: "Grok 账号", description: "登录身份、团队信息与账号入口", anchor: "settingsAuthButton" },
+      { id: "runtime-detect", page: "account", section: "账号", title: "Grok Runtime", description: "检测本地 Runtime 路径与版本", anchor: "refreshRuntime" },
+      { id: "provider-models", page: "models", section: "第三方模型", title: "第三方模型", description: "发现并保存 OpenAI / Anthropic 兼容服务", anchor: "providerUrl" },
+      { id: "integrations-overview", page: "integrations", section: "集成", title: "集成概览", description: "MCP、插件、Skills、Hooks 与 Agents", anchor: "integrationGrid" },
+      { id: "raw-config", page: "advanced", section: "配置文件", title: "原生配置文件", description: "编辑 ~/.grok/config.toml", anchor: "rawConfigEditor" }
+    ];
+    const nativeEntries = nativeSettingGroups.flatMap((group) => {
+      const page = settingTargetPages[group.target];
+      return group.items.map((item) => ({
+        id: item[0],
+        page,
+        section: group.title,
+        title: item[1],
+        description: item[2],
+        keywords: item[0],
+        rowId: item[0]
+      }));
+    });
+    return [...staticEntries, ...nativeEntries].map((entry) => ({
+      ...entry,
+      pageTitle: settingPageTitles[entry.page] || entry.page,
+      haystack: `${entry.title} ${entry.description} ${entry.section || ""} ${settingPageTitles[entry.page] || ""} ${entry.keywords || ""} ${entry.id}`.toLowerCase()
+    }));
+  }
+
+  function matchSettingsTokens(haystack, tokens) {
+    return tokens.every((token) => haystack.includes(token));
+  }
+
+  function scoreSettingsMatch(entry, tokens) {
+    const title = entry.title.toLowerCase();
+    let score = 0;
+    for (const token of tokens) {
+      if (title === token) score += 40;
+      else if (title.startsWith(token)) score += 28;
+      else if (title.includes(token)) score += 16;
+      else if ((entry.section || "").toLowerCase().includes(token)) score += 8;
+      else score += 4;
+    }
+    return score;
+  }
+
+  function clearSettingsSearchUI() {
+    const results = $("#settingsSearchResults");
+    if (results) { results.hidden = true; results.innerHTML = ""; }
+    $("#settingsWindow")?.classList.remove("is-searching");
+  }
+
+  function focusSettingsSearchHit(entry) {
+    const target = entry.rowId
+      ? $(`[data-setting-row="${entry.rowId}"]`)
+      : entry.anchor
+        ? ($("#" + entry.anchor)?.closest(".settings-row, .profile-hero, .settings-card, .provider-form, .integration-grid, .raw-config-toolbar") || $("#" + entry.anchor))
+        : null;
+    if (!target) return;
+    target.scrollIntoView({ block: "center", behavior: "smooth" });
+    target.classList.add("is-search-focus");
+    setTimeout(() => target.classList.remove("is-search-focus"), 1600);
+  }
+
+  function openSettingsSearchHit(entry) {
+    $("#settingsSearch").value = "";
+    clearSettingsSearchUI();
+    showSettingsPage(entry.page);
+    requestAnimationFrame(() => focusSettingsSearchHit(entry));
+  }
+
+  function renderSettingsSearch(query) {
+    const value = query.trim().toLowerCase();
+    const results = $("#settingsSearchResults");
+    if (!results) return;
+    if (!value) {
+      clearSettingsSearchUI();
+      showSettingsPage(settingsSearchPage || $('[data-settings-page].is-active')?.dataset.settingsPage || "general");
+      return;
+    }
+    const tokens = value.split(/\s+/).filter(Boolean);
+    const matches = settingsSearchCatalog()
+      .map((entry) => ({ entry, score: scoreSettingsMatch(entry, tokens) }))
+      .filter(({ entry }) => matchSettingsTokens(entry.haystack, tokens))
+      .sort((a, b) => b.score - a.score || a.entry.title.localeCompare(b.entry.title, "zh"))
+      .map(({ entry }) => entry);
+
+    const grouped = new Map();
+    for (const entry of matches) {
+      const key = entry.page;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(entry);
+    }
+
+    $("#settingsWindow")?.classList.add("is-searching");
+    $$('[data-settings-panel]').forEach((panel) => { panel.hidden = panel.dataset.settingsPanel !== "search"; });
+    $$('[data-settings-page]').forEach((button) => {
+      const page = button.dataset.settingsPage;
+      button.classList.toggle("is-active", false);
+      button.classList.toggle("has-search-hit", grouped.has(page));
+    });
+    results.hidden = false;
+    if (!matches.length) {
+      results.innerHTML = `<div class="settings-panel__heading"><h3>搜索结果</h3><p>没有与「${escapeHtml(query.trim())}」匹配的设置</p></div><div class="settings-search-empty">试试更短的关键词，例如「主题」「权限」「模型」</div>`;
+      return;
+    }
+    results.innerHTML = `<div class="settings-panel__heading"><h3>搜索结果</h3><p>${matches.length} 项匹配 · 点击可跳转到对应设置</p></div>${[...grouped.entries()].map(([page, items]) => `
+      <div class="settings-search-group">
+        <h4>${escapeHtml(settingPageTitles[page] || page)}</h4>
+        <div class="settings-search-list">${items.map((entry) => `
+          <button type="button" class="settings-search-hit" data-search-id="${escapeHtml(entry.id)}">
+            <span><b>${escapeHtml(entry.title)}</b><small>${escapeHtml(entry.description)}</small></span>
+            <em>${escapeHtml(entry.section || settingPageTitles[page] || page)}</em>
+          </button>`).join("")}</div>
+      </div>`).join("")}`;
+    $$('[data-search-id]', results).forEach((button) => button.addEventListener("click", () => {
+      const entry = matches.find((item) => item.id === button.dataset.searchId);
+      if (entry) openSettingsSearchHit(entry);
+    }));
+  }
 
   function modelSettingOptions(current) {
     const values = [{ id: "", label: "使用 Runtime 默认值" }, ...runtimeModels.filter((item) => item.id !== "auto")];
@@ -1250,15 +1375,14 @@
     control.closest(".native-setting-control")?.classList.add("is-saved");
     setTimeout(() => control.closest(".native-setting-control")?.classList.remove("is-saved"), 1200);
     if (id === "permission_mode") { state.alwaysApprove = result.value === "always-approve"; saveState(); updateSwitches(); }
-    $("#settingsConfigStatus").textContent = `已写入 ${nativeConfig.path}`;
   }
 
   function renderIntegrationSummary() {
     const counts = nativeConfig.integrations || {};
     const items = [
-      ["i-command", "MCP Servers", counts.mcp || 0], ["i-tasks", "Plugins", counts.plugins || 0],
+      ["i-terminal", "MCP Servers", counts.mcp || 0], ["i-tasks", "Plugins", counts.plugins || 0],
       ["i-file", "Skills", counts.skills || 0], ["i-terminal", "Hooks", counts.hooks || 0],
-      ["i-user", "Agents", counts.agents || 0], ["i-command", "Custom Models", counts.models || 0]
+      ["i-user", "Agents", counts.agents || 0], ["i-sliders", "Custom Models", counts.models || 0]
     ];
     $("#integrationGrid").innerHTML = items.map(([icon, label, count]) => `<article class="integration-card"><svg><use href="#${icon}"/></svg><b>${label}</b><small>${count} 个已发现项目</small></article>`).join("");
   }
@@ -1267,33 +1391,19 @@
     if (api) nativeConfig = await api.readNativeConfig();
     $("#nativeConfigPath").textContent = nativeConfig.path;
     $("#rawConfigEditor").value = nativeConfig.raw || "";
-    $("#settingsConfigStatus").textContent = `直接读写 ${nativeConfig.path} · ${Object.keys(nativeConfig.values || {}).length} 项原生设置`;
     state.alwaysApprove = nativeConfig.values?.permission_mode === "always-approve";
     saveState(); updateSwitches(); renderNativeSettings(); renderIntegrationSummary();
   }
 
   function showSettingsPage(page = "general") {
-    $$('[data-settings-page]').forEach((button) => button.classList.toggle("is-active", button.dataset.settingsPage === page));
+    settingsSearchPage = page;
+    clearSettingsSearchUI();
+    $$('[data-settings-page]').forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.settingsPage === page);
+      button.classList.remove("has-search-hit");
+    });
     $$('[data-settings-panel]').forEach((panel) => { panel.hidden = panel.dataset.settingsPanel !== page; });
     $("#settingsContent").scrollTop = 0;
-  }
-
-  function renderSettingsSearch(query) {
-    const value = query.trim().toLowerCase();
-    let results = $("#settingsSearchResults");
-    if (!value) { results?.remove(); showSettingsPage($('[data-settings-page].is-active')?.dataset.settingsPage || "general"); return; }
-    const matches = nativeSettingGroups.flatMap((group) => group.items.map((item) => ({ group, item }))).filter(({ item }) => `${item[0]} ${item[1]} ${item[2]}`.toLowerCase().includes(value));
-    if (!results) {
-      results = document.createElement("section"); results.id = "settingsSearchResults"; results.className = "settings-panel"; $("#settingsContent").prepend(results);
-    }
-    $$('[data-settings-panel]').forEach((panel) => { panel.hidden = true; });
-    $$('[data-settings-page]').forEach((button) => button.classList.remove("is-active"));
-    results.hidden = false;
-    results.innerHTML = `<div class="settings-panel__heading"><h3>搜索设置</h3><p>找到 ${matches.length} 个匹配项</p></div><div class="settings-card">${matches.map(({ group, item }) => `<button class="settings-row" data-search-result="${item[0]}" data-search-page="${settingTargetPages[group.target]}"><span><b>${escapeHtml(item[1])}</b><small>${escapeHtml(item[2])}</small></span><svg style="width:14px"><use href="#i-chevron"/></svg></button>`).join("") || '<div class="context-empty">没有匹配的原生设置</div>'}</div>`;
-    $$('[data-search-result]', results).forEach((button) => button.addEventListener("click", () => {
-      $("#settingsSearch").value = ""; results.remove(); showSettingsPage(button.dataset.searchPage);
-      setTimeout(() => $(`[data-setting-row="${button.dataset.searchResult}"]`)?.scrollIntoView({ block: "center" }), 0);
-    }));
   }
 
   function initials(name) {
@@ -1364,10 +1474,17 @@
   }
 
   async function openSettings(page = "general") {
-    $("#accountPopover").hidden = true; $("#settingsBackdrop").hidden = false; showSettingsPage(page);
+    $("#accountPopover").hidden = true;
+    $("#settingsBackdrop").hidden = false;
+    $("#settingsSearch").value = "";
+    showSettingsPage(page);
     await Promise.all([loadSavedProviders(), loadNativeConfig(), refreshAuthInfo()]);
   }
-  function closeSettings() { $("#settingsBackdrop").hidden = true; $("#settingsSearch").value = ""; $("#settingsSearchResults")?.remove(); }
+  function closeSettings() {
+    $("#settingsBackdrop").hidden = true;
+    $("#settingsSearch").value = "";
+    clearSettingsSearchUI();
+  }
 
   function providerModelOptions() {
     return savedProviders.flatMap((provider) => (provider.models || []).map((model) => ({
@@ -1611,7 +1728,10 @@
     $("#profileMenuButton").addEventListener("click", () => openSettings("account"));
     $("#settingsMenuButton").addEventListener("click", () => openSettings("general"));
     $("#authMenuButton").addEventListener("click", toggleAuth); $("#settingsAuthButton").addEventListener("click", toggleAuth);
-    $$('[data-settings-page]').forEach((button) => button.addEventListener("click", () => { $("#settingsSearch").value = ""; $("#settingsSearchResults")?.remove(); showSettingsPage(button.dataset.settingsPage); }));
+    $$('[data-settings-page]').forEach((button) => button.addEventListener("click", () => {
+      $("#settingsSearch").value = "";
+      showSettingsPage(button.dataset.settingsPage);
+    }));
     $("#settingsSearch").addEventListener("input", (event) => renderSettingsSearch(event.target.value));
     $("#reloadRawConfig").addEventListener("click", loadNativeConfig);
     $("#revealRawConfig").addEventListener("click", () => api?.revealNativeConfig());
@@ -1620,7 +1740,7 @@
       const result = api ? await api.saveRawConfig($("#rawConfigEditor").value) : { ok: true, raw: $("#rawConfigEditor").value, values: nativeConfig.values };
       if (!result.ok) { toast("配置保存失败", result.error); return; }
       nativeConfig = result; renderNativeSettings(); renderIntegrationSummary();
-      $("#settingsConfigStatus").textContent = `已保存 ${nativeConfig.path}`; toast("原生配置已保存", "TUI 与桌面端将读取同一份 config.toml");
+      toast("原生配置已保存", "TUI 与桌面端将读取同一份 config.toml");
       await detectRuntime({ waitForModels: true });
     });
     $("#discoverModelsButton").addEventListener("click", discoverProviderModels);

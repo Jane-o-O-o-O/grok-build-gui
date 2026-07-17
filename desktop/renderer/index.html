@@ -26,7 +26,6 @@
       <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4 4 10-10" /></symbol>
       <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V5H5v11h3" /></symbol>
       <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></symbol>
-      <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3z" /></symbol>
       <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="m6 10 6-6 6 6M12 4v16" /></symbol>
       <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 8a7 7 0 0 1 11.9-1l2 5M4 12l2 5a7 7 0 0 0 11.9-1" /></symbol>
       <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13M10 10v6M14 10v6" /></symbol>
@@ -63,7 +62,7 @@
 
       <aside class="sidebar" id="sidebar">
         <div class="sidebar__top">
-          <button class="new-thread-button" id="newThreadButton"><svg><use href="#i-plus"/></svg><span>新建任务</span><kbd>⌘N</kbd></button>
+          <button class="new-thread-button" id="newThreadButton"><svg><use href="#i-plus"/></svg><span>新建任务</span></button>
           <button class="icon-button" id="searchButton" title="搜索会话"><svg><use href="#i-search"/></svg></button>
         </div>
 
@@ -84,7 +83,7 @@
             <div class="account-status-row"><span class="status-dot" id="accountRuntimeDot"></span><span><b id="accountRuntimeLabel">Grok Runtime</b><small id="accountVersionLabel">正在检测版本</small></span></div>
             <nav>
               <button id="profileMenuButton"><svg><use href="#i-user"/></svg><span>个人资料</span><svg class="menu-chevron"><use href="#i-chevron"/></svg></button>
-              <button id="settingsMenuButton"><svg><use href="#i-settings"/></svg><span>设置</span><kbd>⌘,</kbd></button>
+              <button id="settingsMenuButton"><svg><use href="#i-settings"/></svg><span>设置</span></button>
               <button id="authMenuButton"><svg><use href="#i-logout"/></svg><span id="authMenuLabel">登录 Grok</span></button>
             </nav>
           </div>
@@ -112,7 +111,7 @@
           </div>
           <div class="toolbar-group toolbar-group--right">
             <span class="session-state" id="sessionState"><i></i>准备就绪</span>
-            <button class="icon-button" id="inspectorToggle" title="右侧工作台"><svg><use href="#i-command"/></svg></button>
+            <button class="icon-button" id="inspectorToggle" title="右侧工作台"><svg><use href="#i-panel"/></svg></button>
           </div>
         </div>
 
@@ -178,10 +177,10 @@
     </div>
 
     <div class="modal-backdrop settings-backdrop" id="settingsBackdrop" hidden>
-      <section class="settings-window" role="dialog" aria-modal="true" aria-label="Grok 设置">
+      <section class="settings-window" id="settingsWindow" role="dialog" aria-modal="true" aria-label="Grok 设置">
         <header class="settings-window__header">
           <div><small>GROK BUILD</small><h2>设置</h2></div>
-          <label class="settings-search"><svg><use href="#i-search"/></svg><input id="settingsSearch" placeholder="搜索设置…"/><kbd>⌘F</kbd></label>
+          <label class="settings-search"><svg><use href="#i-search"/></svg><input id="settingsSearch" placeholder="搜索设置…"/></label>
           <button class="icon-button" data-close-modal><svg><use href="#i-x"/></svg></button>
         </header>
         <div class="settings-layout">
@@ -189,9 +188,9 @@
             <div class="settings-nav__group">个人</div>
             <button data-settings-page="account"><svg><use href="#i-user"/></svg>账号</button>
             <button class="is-active" data-settings-page="general"><svg><use href="#i-sliders"/></svg>常规</button>
-            <button data-settings-page="models"><svg><use href="#i-command"/></svg>模型</button>
+            <button data-settings-page="models"><svg><use href="#i-sliders"/></svg>模型</button>
             <button data-settings-page="appearance"><svg><use href="#i-sun"/></svg>外观</button>
-            <button data-settings-page="input"><svg><use href="#i-command"/></svg>输入与交互</button>
+            <button data-settings-page="input"><svg><use href="#i-terminal"/></svg>输入与交互</button>
             <div class="settings-nav__group">Grok Runtime</div>
             <button data-settings-page="agent"><svg><use href="#i-shield"/></svg>Agent 与权限</button>
             <button data-settings-page="tools"><svg><use href="#i-terminal"/></svg>工具</button>
@@ -204,6 +203,8 @@
           </aside>
 
           <main class="settings-content" id="settingsContent">
+            <section class="settings-panel" data-settings-panel="search" id="settingsSearchResults" hidden></section>
+
             <section class="settings-panel" data-settings-panel="account" hidden>
               <div class="settings-panel__heading"><h3>账号</h3><p>管理 Grok 登录身份、团队信息和运行时连接。</p></div>
               <div class="profile-hero"><span class="account-avatar account-avatar--hero" id="settingsAccountAvatar">G</span><span><h4 id="settingsAccountName">登录 Grok</h4><p id="settingsAccountEmail">登录后在桌面端使用 Grok 账号信息</p><small id="settingsAccountTeam"></small></span><button class="primary-button" id="settingsAuthButton">登录 Grok</button></div>
@@ -247,7 +248,7 @@
             </section>
           </main>
         </div>
-        <footer class="settings-window__footer"><span id="settingsConfigStatus">正在读取 ~/.grok/config.toml…</span><button class="primary-button" data-close-modal>完成</button></footer>
+        <footer class="settings-window__footer"><span></span><button class="primary-button" data-close-modal>完成</button></footer>
       </section>
     </div>
 
