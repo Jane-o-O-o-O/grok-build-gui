@@ -31,6 +31,7 @@
   let durationTimer = null;
   let runtimeModels = [{ id: "auto", label: "自动模型" }];
   let streamRenderFrame = null;
+  const sideStreamFrames = new Map();
   let pickerPopover = null;
   let providerDiscovery = null;
   let savedProviders = [];
@@ -261,14 +262,94 @@
     </div>`;
   }
 
-  function messageMarkup(message) {
-    if (message.kind === "tool") {
-      return `<div class="tool-card"><div class="tool-card__head"><svg><use href="#i-terminal"/></svg><b>${escapeHtml(message.title || "Grok runtime")}</b><small>${escapeHtml(message.status || "activity")}</small></div><div class="tool-card__body">${escapeHtml(message.text)}</div></div>`;
+  function toolStatus(status, exitCode = null) {
+    const normalized = String(status || "pending").toLowerCase().replace(/[^a-z_]/g, "_");
+    if (exitCode != null && Number(exitCode) !== 0) return "failed";
+    if (["completed", "complete", "success", "succeeded", "done"].includes(normalized)) return "completed";
+    if (["failed", "error", "rejected", "denied", "cancelled", "canceled"].includes(normalized)) return "failed";
+    if (["waiting_permission", "permission_prompt", "waiting_for_permission"].includes(normalized)) return "waiting_permission";
+    if (["in_progress", "running", "started", "active"].includes(normalized)) return "in_progress";
+    return "pending";
+  }
+
+  function toolStatusLabel(message) {
+    const status = toolStatus(message.status, message.exitCode);
+    if (status === "completed") return "已完成";
+    if (status === "failed") return message.status === "cancelled" ? "已停止" : "执行异常";
+    if (status === "waiting_permission") return "等待确认";
+    if (status === "in_progress") return "执行中";
+    return "准备中";
+  }
+
+  function toolIcon(message) {
+    const value = `${message.toolName || ""} ${message.kindName || message.kind || ""} ${message.title || ""}`.toLowerCase();
+    if (/browser|web|url|fetch/.test(value)) return "i-browser";
+    if (/read|file|glob|grep|search|list/.test(value)) return "i-file";
+    if (/edit|write|patch|replace/.test(value)) return "i-review";
+    if (/task|agent|todo/.test(value)) return "i-tasks";
+    if (/terminal|shell|bash|command|execute|run_/.test(value)) return "i-terminal";
+    return "i-command";
+  }
+
+  function nestedToolValue(value, keys) {
+    if (!value || typeof value !== "object") return null;
+    for (const key of keys) if (typeof value[key] === "string" && value[key].trim()) return value[key].trim();
+    for (const child of Object.values(value)) {
+      if (child && typeof child === "object") { const found = nestedToolValue(child, keys); if (found) return found; }
     }
+    return null;
+  }
+
+  function toolInputSummary(message) {
+    return nestedToolValue(message.input, ["command", "path", "file_path", "query", "url", "pattern", "description"])
+      || message.description || message.toolName || message.kindName || "Runtime 工具";
+  }
+
+  function prettyToolValue(value) {
+    if (value == null || value === "") return "";
+    if (typeof value === "string") return value;
+    try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+  }
+
+  function thinkingMarkup(message, running = false, side = false) {
+    if (!message.thought || nativeConfig.values.show_thinking_blocks === false) return "";
+    const active = Boolean(running);
+    return `<details class="thinking-block ${side ? "thinking-block--side" : ""} ${active ? "is-active" : ""}" ${active ? "open" : ""}>
+      <summary><span class="thinking-block__signal">${active ? '<i></i><i></i><i></i>' : '<svg><use href="#i-check"/></svg>'}</span><b>${active ? "正在思考" : "思考过程"}</b><span class="thinking-block__chevron"><svg><use href="#i-chevron"/></svg></span></summary>
+      <div class="thinking-block__content">${escapeHtml(message.thought)}</div>
+    </details>`;
+  }
+
+  function toolMessageMarkup(message, side = false) {
+    const status = toolStatus(message.status, message.exitCode);
+    const running = status === "pending" || status === "in_progress" || status === "waiting_permission";
+    const input = prettyToolValue(message.input);
+    const output = prettyToolValue(message.output || (message.exitCode != null ? `退出代码 ${message.exitCode}` : ""));
+    const duration = message.durationMs != null ? `${Math.max(0, Number(message.durationMs))} ms` : "";
+    const meta = [message.currentDir ? `目录  ${message.currentDir}` : "", message.exitCode != null ? `退出  ${message.exitCode}` : "", duration].filter(Boolean);
+    return `<details class="tool-card tool-card--${status} ${side ? "tool-card--side" : ""}" data-message-id="${escapeHtml(message.id)}" data-tool-call-id="${escapeHtml(message.toolCallId || "")}" ${running || status === "failed" ? "open" : ""}>
+      <summary class="tool-card__head">
+        <span class="tool-card__icon"><svg><use href="#${toolIcon(message)}"/></svg></span>
+        <span class="tool-card__copy"><b>${escapeHtml(message.title || message.toolName || "Runtime 工具")}</b><small>${escapeHtml(toolInputSummary(message))}</small></span>
+        <span class="tool-card__status"><i></i>${toolStatusLabel(message)}</span>
+        <span class="tool-card__chevron"><svg><use href="#i-chevron"/></svg></span>
+      </summary>
+      <div class="tool-card__body">
+        ${message.description ? `<p class="tool-card__description">${escapeHtml(message.description)}</p>` : ""}
+        ${input ? `<section><header>输入</header><pre>${escapeHtml(input)}</pre></section>` : ""}
+        ${output ? `<section><header>输出</header><pre>${escapeHtml(output)}</pre></section>` : (running ? '<div class="tool-card__waiting"><i></i>正在等待 Runtime 返回结果…</div>' : "")}
+        ${meta.length ? `<footer>${meta.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</footer>` : ""}
+      </div>
+    </details>`;
+  }
+
+  function messageMarkup(message) {
+    if (message.kind === "tool") return toolMessageMarkup(message);
     const assistant = message.role === "assistant";
     const identity = assistant ? '<span class="grok-mark" aria-hidden="true"></span>' : "YOU";
     return `<article class="message message--${assistant ? "assistant" : "user"}" data-message-id="${message.id}">
       <div class="message__meta"><span class="message__identity">${identity}</span><b>${assistant ? "Grok" : "你"}</b><span>${formatTime(message.createdAt)}</span></div>
+      ${assistant ? `<div class="message__thinking-slot">${thinkingMarkup(message, activeAssistantMessage?.id === message.id)}</div>` : ""}
       <div class="message__body">${assistant ? markdown(message.text) : escapeHtml(message.text)}</div>
       ${assistant ? '<div class="message-actions"><button class="icon-button copy-message" title="复制"><svg><use href="#i-copy"/></svg></button></div>' : ""}
     </article>`;
@@ -297,6 +378,13 @@
       const article = $(`[data-message-id="${activeAssistantMessage.id}"]`);
       const body = article?.querySelector(".message__body");
       if (!body) return;
+      const thoughtSlot = article.querySelector(".message__thinking-slot");
+      if (thoughtSlot && activeAssistantMessage.thought && nativeConfig.values.show_thinking_blocks !== false) {
+        let block = thoughtSlot.querySelector(".thinking-block");
+        if (!block) { thoughtSlot.innerHTML = thinkingMarkup(activeAssistantMessage, true); block = thoughtSlot.querySelector(".thinking-block"); }
+        const content = block?.querySelector(".thinking-block__content");
+        if (content) content.textContent = activeAssistantMessage.thought;
+      }
       body.innerHTML = markdown(activeAssistantMessage.text);
       bindMessageBody(body);
       if (followOutput) conversation.scrollTop = conversation.scrollHeight;
@@ -530,12 +618,70 @@
     renderSideTaskPane(tab, pane);
   }
 
-  function sideTaskMessageMarkup(message) {
+  function sideTaskMessageMarkup(message, tab = null) {
+    if (message.kind === "tool") return toolMessageMarkup(message, true);
     const assistant = message.role === "assistant";
     return `<article class="side-message side-message--${assistant ? "assistant" : "user"}" data-side-message-id="${message.id}">
       <header>${assistant ? '<span class="grok-mark" aria-hidden="true"></span><b>Grok</b>' : "<b>你</b>"}<time>${formatTime(message.createdAt)}</time></header>
+      ${assistant ? thinkingMarkup(message, Boolean(tab?.runId && message.id === tab.activeAssistantId), true) : ""}
       <div class="side-message__body">${assistant ? markdown(message.text || "") : escapeHtml(message.text || "")}</div>
     </article>`;
+  }
+
+  function createToolMessage(event) {
+    return {
+      id: uid(), kind: "tool", toolCallId: event.toolCallId || `tool-${uid()}`,
+      toolName: event.toolName || null, kindName: event.kind || null,
+      title: event.title || event.toolName || "Runtime 工具", status: toolStatus(event.status),
+      input: event.input ?? null, output: event.output || "", exitCode: event.exitCode ?? null,
+      currentDir: event.currentDir || null, description: event.description || null,
+      locations: event.locations || null, createdAt: event.timestamp || Date.now(), startedAt: Date.now()
+    };
+  }
+
+  function mergeToolMessage(message, event) {
+    if (event.title) message.title = event.title;
+    if (event.toolName) message.toolName = event.toolName;
+    if (event.kind) message.kindName = event.kind;
+    if (event.status) message.status = toolStatus(event.status, event.exitCode);
+    if (event.input != null) message.input = event.input;
+    if (event.output != null && event.output !== "") message.output = event.output;
+    if (event.exitCode != null) message.exitCode = event.exitCode;
+    if (event.currentDir) message.currentDir = event.currentDir;
+    if (event.description) message.description = event.description;
+    if (event.locations) message.locations = event.locations;
+    if (toolStatus(message.status, message.exitCode) === "completed" || toolStatus(message.status, message.exitCode) === "failed") message.finishedAt ||= Date.now();
+    return message;
+  }
+
+  function sideToolEvent(tab, event) {
+    tab.messages ||= [];
+    let tool = tab.messages.find((message) => message.kind === "tool" && message.toolCallId === event.toolCallId);
+    if (!tool) {
+      const active = tab.messages.find((message) => message.id === tab.activeAssistantId);
+      if (active && !active.text && !active.thought) tab.messages.splice(tab.messages.indexOf(active), 1);
+      tool = createToolMessage(event); tab.messages.push(tool);
+      const assistant = { id: uid(), role: "assistant", text: "", thought: "", createdAt: Date.now() };
+      tab.messages.push(assistant); tab.activeAssistantId = assistant.id;
+    }
+    mergeToolMessage(tool, event);
+    return tool;
+  }
+
+  function lifecycleTool(tab, lifecycle) {
+    if (!["permission_requested", "permission_resolved", "tool_started", "tool_completed"].includes(lifecycle.type)) return null;
+    const tools = [...(tab.messages || [])].reverse().filter((message) => message.kind === "tool");
+    const tool = tools.find((message) => !lifecycle.tool_name || message.toolName === lifecycle.tool_name) || tools[0];
+    if (!tool) return null;
+    if (lifecycle.type === "permission_requested") tool.status = "waiting_permission";
+    if (lifecycle.type === "permission_resolved") tool.status = lifecycle.decision === "allow" ? "in_progress" : "failed";
+    if (lifecycle.type === "tool_started") tool.status = "in_progress";
+    if (lifecycle.type === "tool_completed") {
+      tool.status = lifecycle.outcome === "success" ? "completed" : "failed";
+      tool.durationMs = lifecycle.duration_ms;
+      tool.finishedAt = Date.now();
+    }
+    return tool;
   }
 
   function renderSideTaskPane(tab, pane = null) {
@@ -543,12 +689,32 @@
     if (!pane) return;
     const target = $("[data-side-messages]", pane);
     target.innerHTML = tab.messages?.length
-      ? tab.messages.map(sideTaskMessageMarkup).join("")
+      ? tab.messages.map((message) => sideTaskMessageMarkup(message, tab)).join("")
       : `<div class="side-task-empty"><span class="grok-mark" aria-hidden="true"></span><h3>并行处理一个新任务</h3><p>这里和主对话使用同一工作区记忆，同时保留独立的会话与回答。</p></div>`;
     const button = $("[data-side-send]", pane);
     button.classList.toggle("is-stop", Boolean(tab.runId));
     button.innerHTML = `<svg><use href="#${tab.runId ? "i-stop" : "i-send"}"/></svg>`;
     requestAnimationFrame(() => { target.scrollTop = target.scrollHeight; });
+  }
+
+  function scheduleSideStreamingRender(tab) {
+    if (sideStreamFrames.has(tab.id)) return;
+    sideStreamFrames.set(tab.id, requestAnimationFrame(() => {
+      sideStreamFrames.delete(tab.id);
+      const pane = [...$$('[data-dock-id]')].find((item) => item.dataset.dockId === tab.id);
+      const target = pane && $("[data-side-messages]", pane);
+      const assistant = tab.messages?.find((message) => message.id === tab.activeAssistantId);
+      const article = target?.querySelector(`[data-side-message-id="${tab.activeAssistantId}"]`);
+      if (!assistant || !article) return;
+      const followOutput = target.scrollHeight - target.scrollTop - target.clientHeight < 90;
+      const body = $(".side-message__body", article); if (body) body.innerHTML = markdown(assistant.text || "");
+      if (assistant.thought && nativeConfig.values.show_thinking_blocks !== false) {
+        let block = $(".thinking-block", article);
+        if (!block) { article.querySelector("header").insertAdjacentHTML("afterend", thinkingMarkup(assistant, true, true)); block = $(".thinking-block", article); }
+        const content = block && $(".thinking-block__content", block); if (content) content.textContent = assistant.thought;
+      }
+      if (followOutput) target.scrollTop = target.scrollHeight;
+    }));
   }
 
   function mainConversationContext() {
@@ -584,20 +750,28 @@
   }
 
   function handleSideTaskEvent(tab, event) {
-    const assistant = tab.messages?.find((message) => message.id === tab.activeAssistantId) || [...(tab.messages || [])].reverse().find((message) => message.role === "assistant");
-    if (!assistant) return;
     if (event.runId && !tab.runId) tab.runId = event.runId;
-    if (event.type === "text") assistant.text += event.data || "";
-    else if (event.type === "error") assistant.text += `\n\n**错误：** ${event.message}`;
+    let assistant = tab.messages?.find((message) => message.id === tab.activeAssistantId) || [...(tab.messages || [])].reverse().find((message) => message.role === "assistant");
+    if (event.type === "session_bound") tab.sessionId = event.sessionId || tab.sessionId;
+    else if (event.type === "tool_call" || event.type === "tool_update") { sideToolEvent(tab, event); assistant = tab.messages.find((message) => message.id === tab.activeAssistantId); }
+    else if (event.type === "lifecycle") { if (!lifecycleTool(tab, event.event || {})) return; }
+    else if (event.type === "text" && assistant) { assistant.text += event.data || ""; scheduleSideStreamingRender(tab); return; }
+    else if (event.type === "thought" && assistant) { assistant.thought = (assistant.thought || "") + (event.data || ""); scheduleSideStreamingRender(tab); return; }
+    else if (event.type === "error" && assistant) assistant.text += `\n\n**错误：** ${event.message}`;
     else if (event.type === "end") { tab.sessionId = event.sessionId || tab.sessionId; finishSideTask(tab, event.stopReason || "完成"); return; }
     else if (event.type === "process_exit" && event.code !== 0) { finishSideTask(tab, `进程退出 ${event.code ?? event.signal}`); return; }
     const pane = [...$$('[data-dock-id]')].find((item) => item.dataset.dockId === tab.id);
     renderSideTaskPane(tab, pane);
   }
 
-  function finishSideTask(tab, _reason) {
+  function finishSideTask(tab, reason) {
     const assistant = tab.messages?.find((message) => message.id === tab.activeAssistantId);
-    if (assistant && !assistant.text) assistant.text = "任务已结束。";
+    if (assistant && !assistant.text && !assistant.thought) tab.messages.splice(tab.messages.indexOf(assistant), 1);
+    for (const tool of (tab.messages || []).filter((message) => message.kind === "tool")) {
+      if (["pending", "in_progress", "waiting_permission"].includes(toolStatus(tool.status))) {
+        tool.status = /停止|失败|退出|error|cancel/i.test(String(reason)) ? "cancelled" : "completed";
+      }
+    }
     tab.runId = null; tab.activeAssistantId = null;
     saveState(); renderSideTaskPane(tab);
   }
@@ -815,7 +989,7 @@
   function setRunning(running) {
     const button = $("#sendButton");
     $("#sessionState").classList.toggle("is-running", running);
-    $("#sessionState").lastChild.textContent = running ? "Grok 正在工作" : "准备就绪";
+    setSessionStateText(running ? "Grok 正在工作" : "准备就绪");
     button.classList.toggle("is-stop", running);
     button.innerHTML = `<svg><use href="#${running ? "i-stop" : "i-send"}"/></svg>`;
     if (running) {
@@ -823,6 +997,61 @@
       clearInterval(durationTimer);
       durationTimer = setInterval(() => { const label = $("#turnDuration"); if (label) label.textContent = `${((Date.now() - startedAt) / 1000).toFixed(1)} S`; }, 100);
     } else clearInterval(durationTimer);
+  }
+
+  function setSessionStateText(label) {
+    const target = $("#sessionState");
+    if (!target) return;
+    const textNode = [...target.childNodes].find((node) => node.nodeType === Node.TEXT_NODE);
+    if (textNode) textNode.textContent = label;
+    else target.append(document.createTextNode(label));
+  }
+
+  function phaseLabel(phase) {
+    return ({
+      waiting_for_model: "等待模型响应", streaming_reasoning: "Grok 正在思考",
+      streaming_text: "Grok 正在回答", tool_execution: "正在执行工具",
+      permission_prompt: "等待工具确认", compacting: "正在整理上下文"
+    })[phase] || "Grok 正在工作";
+  }
+
+  function mainToolEvent(event) {
+    const thread = activeThread();
+    if (!thread) return null;
+    let tool = thread.messages.find((message) => message.kind === "tool" && message.toolCallId === event.toolCallId);
+    if (!tool) {
+      if (activeAssistantMessage && !activeAssistantMessage.text && !activeAssistantMessage.thought) {
+        const index = thread.messages.indexOf(activeAssistantMessage); if (index >= 0) thread.messages.splice(index, 1);
+      }
+      tool = createToolMessage(event); thread.messages.push(tool);
+      activeAssistantMessage = { id: uid(), role: "assistant", text: "", thought: "", createdAt: Date.now() };
+      thread.messages.push(activeAssistantMessage);
+      renderMessages(); scrollToBottom();
+    } else {
+      mergeToolMessage(tool, event);
+      refreshToolMessage(tool);
+    }
+    mergeToolMessage(tool, event);
+    saveState();
+    return tool;
+  }
+
+  function refreshToolMessage(message) {
+    const existing = $(`[data-message-id="${message.id}"]`);
+    if (!existing) { renderMessages(); return; }
+    const wasOpen = existing.open;
+    const template = document.createElement("template"); template.innerHTML = toolMessageMarkup(message).trim();
+    const replacement = template.content.firstElementChild;
+    replacement.open = wasOpen || ["pending", "in_progress", "waiting_permission", "failed"].includes(toolStatus(message.status, message.exitCode));
+    existing.replaceWith(replacement);
+  }
+
+  function handleMainLifecycle(lifecycle) {
+    if (!lifecycle) return;
+    if (lifecycle.type === "phase_changed") setSessionStateText(phaseLabel(lifecycle.phase));
+    const thread = activeThread(); if (!thread) return;
+    const tool = lifecycleTool({ messages: thread.messages }, lifecycle);
+    if (tool) { refreshToolMessage(tool); saveState(); }
   }
 
   function addTimeline(title, detail, status = "done") {
@@ -875,18 +1104,23 @@
   function handleRunEvent(event) {
     const sideTab = state.dockTabs.find((tab) => tab.type === "tasks" && (tab.id === event.clientId || (tab.runId && tab.runId === event.runId)));
     if (sideTab) { handleSideTaskEvent(sideTab, event); return; }
+    if (!activeRun && event.clientId === "main" && activeAssistantMessage) activeRun = event.runId;
     if (!activeRun || event.runId !== activeRun) return;
     if (event.type === "text") {
       activeAssistantMessage.text += event.data || "";
       scheduleStreamingRender();
     } else if (event.type === "thought") {
       activeAssistantMessage.thought = (activeAssistantMessage.thought || "") + (event.data || "");
+      scheduleStreamingRender();
+    } else if (event.type === "session_bound") {
+      const thread = activeThread(); if (thread) thread.sessionId = event.sessionId || thread.sessionId;
+    } else if (event.type === "tool_call" || event.type === "tool_update") {
+      mainToolEvent(event);
+    } else if (event.type === "lifecycle") {
+      handleMainLifecycle(event.event);
     } else if (event.type === "diagnostic") {
       activeRunDiagnostics.push(String(event.data || ""));
       activeRunDiagnostics = activeRunDiagnostics.slice(-8);
-      const thread = activeThread();
-      const existing = thread.messages.at(-2)?.kind === "tool" ? thread.messages.at(-2) : null;
-      if (existing) existing.text = `${existing.text}\n${event.data}`.slice(-2400);
       addTimeline("Runtime 活动", String(event.data).slice(0, 55), "done");
     } else if (event.type === "error") {
       activeAssistantMessage.text += `\n\n**错误：** ${event.message}`;
@@ -906,7 +1140,14 @@
 
   function finishRun(reason) {
     const thread = activeThread();
-    if (thread && activeAssistantMessage && !activeAssistantMessage.text) activeAssistantMessage.text = "任务已结束。";
+    if (thread && activeAssistantMessage && !activeAssistantMessage.text && !activeAssistantMessage.thought) {
+      const index = thread.messages.indexOf(activeAssistantMessage); if (index >= 0) thread.messages.splice(index, 1);
+    }
+    if (thread) for (const tool of thread.messages.filter((message) => message.kind === "tool")) {
+      if (["pending", "in_progress", "waiting_permission"].includes(toolStatus(tool.status))) {
+        tool.status = /停止|失败|退出|error|cancel/i.test(String(reason)) ? "cancelled" : "completed";
+      }
+    }
     if (thread) thread.updatedAt = Date.now();
     activeRun = null; activeAssistantMessage = null; activeRunDiagnostics = [];
     setRunning(false); saveState(); renderThreads(); renderMessages();

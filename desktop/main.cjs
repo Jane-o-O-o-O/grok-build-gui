@@ -21,6 +21,7 @@ const { createGitBranch, readGitInfo, switchGitBranch } = require("./git-workspa
 const activeRuns = new Map();
 const runClients = new Map();
 const terminalSessions = new Map();
+const sessionUpdateBridges = new Map();
 let mainWindow;
 let activeAuthRun = null;
 let activeAuthUrl = null;
@@ -247,23 +248,159 @@ function dispatchLine(runId, line, source) {
   }
   try {
     const event = JSON.parse(value);
+    if (event?.type === "end") sessionUpdateBridges.get(runId)?.flush();
     emit({ runId, ...event });
   } catch {
     emit({ runId, type: "text", data: line });
   }
 }
 
+function effectivePrompt(payload) {
+  let prompt = String(payload.prompt || "");
+  if (Array.isArray(payload.attachments) && payload.attachments.length) {
+    const attachmentNote = payload.attachments.map((file) => `- ${file}`).join("\n");
+    prompt += `\n\nAttached local files:\n${attachmentNote}`;
+  }
+  return prompt;
+}
+
 function buildArgs(payload) {
-  const args = ["--cwd", payload.cwd, "-p", payload.prompt, "--output-format", "streaming-json"];
+  const args = ["--cwd", payload.cwd, "-p", effectivePrompt(payload), "--output-format", "streaming-json"];
   if (payload.sessionId) args.push("--resume", payload.sessionId);
   if (payload.model && payload.model !== "auto") args.push("--model", payload.model);
   if (payload.effort && payload.effort !== "auto") args.push("--reasoning-effort", payload.effort);
   if (payload.alwaysApprove) args.push("--always-approve");
-  if (Array.isArray(payload.attachments) && payload.attachments.length) {
-    const attachmentNote = payload.attachments.map((file) => `- ${file}`).join("\n");
-    args[args.indexOf("-p") + 1] += `\n\nAttached local files:\n${attachmentNote}`;
-  }
   return args;
+}
+
+function sessionsRootForWorkspace(cwd) {
+  return path.join(grokHomePath(), "sessions", encodeURIComponent(path.resolve(cwd)));
+}
+
+function sessionFiles(root) {
+  try {
+    return fs.readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => ({
+        sessionId: entry.name,
+        updates: path.join(root, entry.name, "updates.jsonl"),
+        events: path.join(root, entry.name, "events.jsonl")
+      }));
+  } catch { return []; }
+}
+
+function fileSizes(root) {
+  const sizes = new Map();
+  for (const files of sessionFiles(root)) {
+    for (const file of [files.updates, files.events]) {
+      try { sizes.set(file, fs.statSync(file).size); } catch {}
+    }
+  }
+  return sizes;
+}
+
+function toolContentText(content) {
+  if (!Array.isArray(content)) return "";
+  return content.map((item) => item?.content?.text || item?.text || item?.content?.content?.text || "").filter(Boolean).join("\n");
+}
+
+function cappedValue(value, max = 24_000) {
+  if (value == null) return null;
+  try {
+    const raw = JSON.stringify(value);
+    return raw.length <= max ? value : { truncated: true, preview: raw.slice(0, max) };
+  } catch { return String(value).slice(0, max); }
+}
+
+function relaySessionUpdate(runId, update, meta = {}) {
+  const type = update?.sessionUpdate;
+  if (type === "tool_call") {
+    const toolMeta = update?._meta?.["x.ai/tool"] || {};
+    emit({
+      runId, type: "tool_call", toolCallId: update.toolCallId,
+      title: update.title || toolMeta.label || toolMeta.name || "工具调用",
+      toolName: toolMeta.name || update.title || "tool",
+      kind: toolMeta.kind || update.kind || "other",
+      readOnly: Boolean(toolMeta.read_only), input: cappedValue(update.rawInput),
+      timestamp: meta.agentTimestampMs || Date.now()
+    });
+  } else if (type === "tool_call_update") {
+    const toolMeta = update?._meta?.["x.ai/tool"] || {};
+    const rawOutput = update.rawOutput || {};
+    const content = toolContentText(update.content);
+    const output = rawOutput.output_for_prompt || content || rawOutput.output || "";
+    emit({
+      runId, type: "tool_update", toolCallId: update.toolCallId,
+      title: update.title || toolMeta.label || null,
+      toolName: toolMeta.name || null, kind: update.kind || toolMeta.kind || null,
+      status: update.status || null, input: cappedValue(update.rawInput || toolMeta.input),
+      output: typeof output === "string" ? output.slice(-40_000) : JSON.stringify(output).slice(-40_000),
+      exitCode: rawOutput.exit_code, currentDir: rawOutput.current_dir,
+      description: rawOutput.description || null, locations: cappedValue(update.locations, 8_000),
+      rawOutput: cappedValue(rawOutput, 20_000), timestamp: meta.agentTimestampMs || Date.now()
+    });
+  }
+}
+
+function relayLifecycleEvent(runId, event) {
+  const supported = new Set(["turn_started", "loop_started", "phase_changed", "tool_started", "tool_completed", "permission_requested", "permission_resolved", "turn_ended"]);
+  if (supported.has(event?.type)) emit({ runId, type: "lifecycle", event: cappedValue(event, 12_000) });
+}
+
+function startSessionUpdateBridge(runId, payload) {
+  const root = sessionsRootForWorkspace(payload.cwd);
+  const offsets = fileSizes(root);
+  const partial = new Map();
+  const expectedPrompt = effectivePrompt(payload);
+  let boundSessionId = payload.sessionId || null;
+  let bound = boundSessionId ? sessionFiles(root).find((item) => item.sessionId === boundSessionId) || null : null;
+  let stopped = false; let polling = false;
+
+  const consume = (file, kind, candidate) => {
+    let stat;
+    try { stat = fs.statSync(file); } catch { return; }
+    let offset = offsets.get(file) || 0;
+    if (stat.size < offset) { offset = 0; partial.set(file, ""); }
+    if (stat.size === offset) return;
+    let bytes;
+    try { const fd = fs.openSync(file, "r"); bytes = Buffer.alloc(stat.size - offset); fs.readSync(fd, bytes, 0, bytes.length, offset); fs.closeSync(fd); } catch { return; }
+    offsets.set(file, stat.size);
+    const joined = `${partial.get(file) || ""}${bytes.toString("utf8")}`;
+    const lines = joined.split(/\r?\n/); partial.set(file, lines.pop() || "");
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let record; try { record = JSON.parse(line); } catch { continue; }
+      if (!bound && kind === "updates") {
+        const update = record?.params?.update;
+        const text = update?.sessionUpdate === "user_message_chunk" ? update?.content?.text : null;
+        if (typeof text === "string" && (text === expectedPrompt || text.startsWith(payload.prompt))) {
+          bound = candidate; boundSessionId = candidate.sessionId;
+          emit({ runId, type: "session_bound", sessionId: boundSessionId });
+        }
+      }
+      if (!bound || candidate.sessionId !== boundSessionId) continue;
+      if (kind === "updates") relaySessionUpdate(runId, record?.params?.update, record?._meta || record?.params?._meta || {});
+      else relayLifecycleEvent(runId, record);
+    }
+  };
+
+  const poll = () => {
+    if (stopped || polling) return; polling = true;
+    try {
+      const candidates = bound ? [bound] : sessionFiles(root);
+      for (const candidate of candidates) {
+        consume(candidate.updates, "updates", candidate);
+        if (bound && candidate.sessionId === boundSessionId) consume(candidate.events, "events", candidate);
+      }
+    } finally { polling = false; }
+  };
+  const timer = setInterval(poll, 120); poll();
+  const bridge = {
+    flush() { poll(); },
+    stop(delay = 0) { setTimeout(() => { poll(); stopped = true; clearInterval(timer); sessionUpdateBridges.delete(runId); }, delay); }
+  };
+  sessionUpdateBridges.set(runId, bridge);
+  return bridge;
 }
 
 ipcMain.handle("runtime:info", async () => {
@@ -571,6 +708,7 @@ ipcMain.handle("grok:prompt", async (_event, payload) => {
 
   const runId = crypto.randomUUID();
   runClients.set(runId, String(payload.clientId || "main"));
+  const sessionBridge = startSessionUpdateBridge(runId, payload);
   const runtimeEnv = await environmentWithSystemProxy(runtimeEnvironment(), runtimeTargetUrl(payload.model));
   const child = spawn(binary, buildArgs(payload), {
     cwd: payload.cwd,
@@ -585,11 +723,12 @@ ipcMain.handle("grok:prompt", async (_event, payload) => {
   activeRuns.set(runId, child);
   parseLines(runId, child.stdout, "stdout");
   parseLines(runId, child.stderr, "stderr");
-  child.on("error", (error) => emit({ runId, type: "error", message: error.message }));
+  child.on("error", (error) => { emit({ runId, type: "error", message: error.message }); sessionBridge.stop(250); });
   child.on("exit", (code, signal) => {
     emit({ runId, type: "process_exit", code, signal });
+    sessionBridge.stop(900);
     activeRuns.delete(runId);
-    runClients.delete(runId);
+    setTimeout(() => runClients.delete(runId), 1_200);
   });
   return { ok: true, runId };
 });
@@ -656,6 +795,7 @@ app.whenReady().then(async () => {
 });
 app.on("window-all-closed", () => {
   for (const child of activeRuns.values()) child.kill();
+  for (const bridge of sessionUpdateBridges.values()) bridge.stop();
   for (const terminalId of [...terminalSessions.keys()]) closeTerminalSession(terminalId);
   if (activeAuthRun) { activeAuthRun.kill(); activeAuthRun = null; activeAuthUrl = null; }
   if (process.platform !== "darwin") app.quit();
