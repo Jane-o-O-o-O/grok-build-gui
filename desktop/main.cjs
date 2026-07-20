@@ -728,6 +728,7 @@ ipcMain.handle("providers:save", async (_event, payload) => {
         toolCapabilityDetail: model.toolCapabilityDetail,
         toolCapabilityCheckedAt: Number(model.toolCapabilityCheckedAt) || null,
         toolProbeVersion: Number(model.toolProbeVersion) || null,
+        enabled: model.enabled !== false,
         apiBackend: model.apiBackend,
         streamToolCalls: false
       })),
@@ -746,6 +747,22 @@ ipcMain.handle("providers:remove", async (_event, providerId) => {
   const store = loadProviderStore();
   store.providers = store.providers.filter((provider) => provider.id !== providerId);
   return publicProviders(persistProviderStore(store));
+});
+
+ipcMain.handle("providers:set-enabled", async (_event, payload) => {
+  try {
+    const providerId = String(payload?.providerId || "");
+    const enabledModelIds = new Set(Array.isArray(payload?.modelIds) ? payload.modelIds.map(String) : []);
+    const store = loadProviderStore();
+    const provider = store.providers.find((item) => item.id === providerId);
+    if (!provider) throw new Error("没有找到要更新的第三方模型源");
+    for (const model of provider.models || []) model.enabled = enabledModelIds.has(model.localId);
+    provider.updatedAt = Date.now();
+    const saved = persistProviderStore(store);
+    return { ok: true, providers: publicProviders(saved) };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
 });
 
 ipcMain.handle("dialog:workspace", async () => {

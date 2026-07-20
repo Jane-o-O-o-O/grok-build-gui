@@ -527,14 +527,33 @@ button.dock-status:hover { border-color: var(--line-accent); background: var(--s
 .provider-save-row { margin: 8px 20px 14px; display: flex; align-items: center; justify-content: space-between; }
 .provider-save-row span { color: var(--text-3); font-size: 9px; }
 .saved-providers { padding: 0 20px 10px; }
-.saved-provider { margin-top: 7px; min-height: 55px; display: flex; align-items: center; gap: 10px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 9px; }
+.saved-provider { margin-top: 7px; overflow: hidden; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-1); }
+.saved-provider__header { min-height: 55px; display: flex; align-items: center; padding-right: 8px; }
+.saved-provider__summary { min-width: 0; min-height: 55px; flex: 1; display: flex; align-items: center; gap: 10px; padding: 8px 9px; border: 0; background: transparent; color: inherit; text-align: left; }
+.saved-provider__summary:hover { background: var(--surface-hover); }
 .saved-provider__protocol { flex: none; display: grid; place-items: center; min-width: 34px; height: 27px; padding: 0 5px; border-radius: 6px; background: var(--surface-active); color: var(--accent); font: 8px var(--font-mono); text-transform: uppercase; }
-.saved-provider > span:nth-child(2) { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.saved-provider__info { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 .saved-provider b { overflow: hidden; font-size: 10px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .saved-provider small { overflow: hidden; color: var(--text-3); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.saved-provider__chevron { flex: none; width: 12px; color: var(--text-3); transform: rotate(-90deg); transition: transform var(--speed-fast); }
+.saved-provider.is-expanded .saved-provider__chevron { transform: rotate(0); }
 .saved-provider__actions { flex: none; display: flex; align-items: center; gap: 4px; }
 .saved-provider__actions .icon-button { width: 27px; height: 27px; }
 .saved-provider__actions .is-busy svg { animation: spin .8s linear infinite; }
+.saved-provider__models { border-top: 1px solid var(--line); background: color-mix(in srgb,var(--surface-2) 72%,transparent); }
+.saved-provider__model-toolbar { min-height: 39px; padding: 6px 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); }
+.saved-provider__model-toolbar > span:first-child { color: var(--text-3); font-size: 9px; }
+.saved-provider__model-toolbar > span:last-child { display: flex; gap: 5px; }
+.saved-provider__model-toolbar button { height: 25px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-1); color: var(--text-2); font-size: 8px; }
+.saved-provider__model-toolbar button:hover:not(:disabled) { border-color: var(--line-strong); background: var(--surface-hover); color: var(--text); }
+.saved-provider__model-toolbar button:disabled { opacity: .45; }
+.saved-provider__model-list { max-height: 310px; overflow: auto; }
+.saved-provider-model { min-height: 46px; padding: 7px 10px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.saved-provider-model:last-child { border-bottom: 0; }
+.saved-provider-model:hover { background: var(--surface-hover); }
+.saved-provider-model input { flex: none; accent-color: var(--accent); }
+.saved-provider-model > span { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.saved-provider-model b { font-family: var(--font-mono); }
 
 .picker-popover { position: fixed; z-index: 120; width: max-content; min-width: 112px; height: fit-content; display: block; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface-float); box-shadow: var(--shadow-float); backdrop-filter: blur(24px) saturate(1.2); animation: pickerIn .22s var(--ease-out) both; }
 .picker-popover--menu { width: 280px; max-height: min(300px, calc(100vh - 24px)); display: flex; }

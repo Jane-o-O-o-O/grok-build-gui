@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld("grokDesktop", {
   probeAllProviderModels: (providerId) => ipcRenderer.invoke("providers:probe-all", providerId),
   refreshProviderModels: (providerId) => ipcRenderer.invoke("providers:refresh", providerId),
   saveProvider: (payload) => ipcRenderer.invoke("providers:save", payload),
+  setProviderModelsEnabled: (providerId, modelIds) => ipcRenderer.invoke("providers:set-enabled", { providerId, modelIds }),
   removeProvider: (providerId) => ipcRenderer.invoke("providers:remove", providerId),
   pickWorkspace: () => ipcRenderer.invoke("dialog:workspace"),
   pickFiles: () => ipcRenderer.invoke("dialog:files"),

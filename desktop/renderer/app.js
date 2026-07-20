@@ -55,6 +55,7 @@
   let providerDiscovery = null;
   let savedProviders = [];
   const providerOperations = new Map();
+  const expandedProviderIds = new Set();
   let nativeConfig = { values: {}, raw: "", path: "~/.grok/config.toml", integrations: {} };
   let authState = { signedIn: false, name: "登录 Grok" };
   let authPollTimer = null;
@@ -2307,7 +2308,7 @@
   }
 
   function providerModelOptions() {
-    return savedProviders.flatMap((provider) => (provider.models || []).map((model) => ({
+    return savedProviders.flatMap((provider) => (provider.models || []).filter((model) => model.enabled !== false).map((model) => ({
       id: model.localId,
       label: model.name || model.id,
       provider: provider.name,
@@ -2349,7 +2350,10 @@
   function mergeProviderModels() {
     const local = providerModelOptions();
     const localById = new Map(local.map((model) => [model.id, model]));
-    runtimeModels = runtimeModels.map((model) => localById.has(model.id) ? { ...model, ...localById.get(model.id) } : model);
+    const providerModelIds = new Set(savedProviders.flatMap((provider) => (provider.models || []).map((model) => model.localId)));
+    runtimeModels = runtimeModels
+      .filter((model) => model.id === "auto" || !providerModelIds.has(model.id) || localById.has(model.id))
+      .map((model) => localById.has(model.id) ? { ...model, ...localById.get(model.id) } : model);
     const ids = new Set(runtimeModels.map((item) => item.id));
     for (const model of local) if (!ids.has(model.id)) { runtimeModels.push(model); ids.add(model.id); }
     if (!runtimeModels.some((item) => item.id === state.model)) {
@@ -2373,11 +2377,38 @@
     }
     target.innerHTML = savedProviders.map((provider) => {
       const operation = providerOperations.get(provider.id);
+      const expanded = expandedProviderIds.has(provider.id);
+      const enabledCount = provider.models.filter((model) => model.enabled !== false).length;
       const detail = operation?.type === "probe"
         ? t("settings.provider.probing", { completed: operation.completed || 0, total: operation.total || provider.models.length })
-        : operation?.type === "refresh" ? t("settings.provider.refreshing") : t("settings.provider.modelCount", { count: provider.models.length, summary: providerCapabilitySummary(provider) });
-      return `<div class="saved-provider"><span class="saved-provider__protocol">${provider.protocol === "anthropic" ? "ANTH" : "OAI"}</span><span><b>${escapeHtml(provider.name)}</b><small>${escapeHtml(provider.baseUrl)} · ${escapeHtml(detail)}${provider.keyProtected ? ` · ${t("settings.provider.keyProtected")}` : ""}</small></span><span class="saved-provider__actions"><button class="icon-button ${operation?.type === "probe" ? "is-busy" : ""}" data-probe-provider="${provider.id}" title="${escapeHtml(t("settings.provider.probeAll"))}" ${operation ? "disabled" : ""}><svg><use href="#i-check"/></svg></button><button class="icon-button ${operation?.type === "refresh" ? "is-busy" : ""}" data-refresh-provider="${provider.id}" title="${escapeHtml(t("settings.provider.refreshList"))}" ${operation ? "disabled" : ""}><svg><use href="#i-refresh"/></svg></button><button class="icon-button" data-remove-provider="${provider.id}" title="${escapeHtml(t("settings.provider.remove"))}" ${operation ? "disabled" : ""}><svg><use href="#i-trash"/></svg></button></span></div>`;
+        : operation?.type === "refresh" ? t("settings.provider.refreshing")
+          : operation?.type === "selection" ? t("settings.provider.selectionSaving")
+            : t("settings.provider.modelCount", { enabled: enabledCount, count: provider.models.length, summary: providerCapabilitySummary(provider) });
+      const modelList = expanded ? `<div class="saved-provider__models">
+        <div class="saved-provider__model-toolbar"><span>${escapeHtml(t("settings.provider.enabledForChat", { enabled: enabledCount, count: provider.models.length }))}</span><span><button type="button" data-provider-enable-all="${escapeHtml(provider.id)}" ${operation || enabledCount === provider.models.length ? "disabled" : ""}>${escapeHtml(t("settings.provider.enableAll"))}</button><button type="button" data-provider-disable-all="${escapeHtml(provider.id)}" ${operation || enabledCount === 0 ? "disabled" : ""}>${escapeHtml(t("settings.provider.disableAll"))}</button></span></div>
+        <div class="saved-provider__model-list">${provider.models.map((model) => {
+          const capability = toolCapabilityMeta(model.toolCapability);
+          return `<label class="saved-provider-model"><input type="checkbox" data-provider-model-toggle="${escapeHtml(model.localId)}" data-provider-id="${escapeHtml(provider.id)}" ${model.enabled !== false ? "checked" : ""} ${operation ? "disabled" : ""}/><span><b>${escapeHtml(model.name || model.id)}</b><small>${escapeHtml(model.id)}</small></span><em class="discovered-model__capability ${capability.className}">${escapeHtml(capability.label)}</em></label>`;
+        }).join("")}</div>
+      </div>` : "";
+      return `<section class="saved-provider ${expanded ? "is-expanded" : ""}"><div class="saved-provider__header"><button type="button" class="saved-provider__summary" data-toggle-provider="${escapeHtml(provider.id)}" aria-expanded="${expanded}"><span class="saved-provider__protocol">${provider.protocol === "anthropic" ? "ANTH" : "OAI"}</span><span class="saved-provider__info"><b>${escapeHtml(provider.name)}</b><small>${escapeHtml(provider.baseUrl)} · ${escapeHtml(detail)}${provider.keyProtected ? ` · ${escapeHtml(t("settings.provider.keyProtected"))}` : ""}</small></span><svg class="saved-provider__chevron"><use href="#i-chevron"/></svg></button><span class="saved-provider__actions"><button class="icon-button ${operation?.type === "probe" ? "is-busy" : ""}" data-probe-provider="${escapeHtml(provider.id)}" title="${escapeHtml(t("settings.provider.probeAll"))}" ${operation ? "disabled" : ""}><svg><use href="#i-check"/></svg></button><button class="icon-button ${operation?.type === "refresh" ? "is-busy" : ""}" data-refresh-provider="${escapeHtml(provider.id)}" title="${escapeHtml(t("settings.provider.refreshList"))}" ${operation ? "disabled" : ""}><svg><use href="#i-refresh"/></svg></button><button class="icon-button" data-remove-provider="${escapeHtml(provider.id)}" title="${escapeHtml(t("settings.provider.remove"))}" ${operation ? "disabled" : ""}><svg><use href="#i-trash"/></svg></button></span></div>${modelList}</section>`;
     }).join("");
+    $$('[data-toggle-provider]').forEach((button) => button.addEventListener("click", () => {
+      const providerId = button.dataset.toggleProvider;
+      expandedProviderIds.has(providerId) ? expandedProviderIds.delete(providerId) : expandedProviderIds.add(providerId);
+      renderSavedProviders();
+    }));
+    $$('[data-provider-model-toggle]').forEach((input) => input.addEventListener("change", () => {
+      const provider = savedProviders.find((item) => item.id === input.dataset.providerId);
+      const enabledIds = new Set((provider?.models || []).filter((model) => model.enabled !== false).map((model) => model.localId));
+      input.checked ? enabledIds.add(input.dataset.providerModelToggle) : enabledIds.delete(input.dataset.providerModelToggle);
+      saveProviderModelSelection(input.dataset.providerId, enabledIds);
+    }));
+    $$('[data-provider-enable-all]').forEach((button) => button.addEventListener("click", () => {
+      const provider = savedProviders.find((item) => item.id === button.dataset.providerEnableAll);
+      saveProviderModelSelection(provider.id, new Set(provider.models.map((model) => model.localId)));
+    }));
+    $$('[data-provider-disable-all]').forEach((button) => button.addEventListener("click", () => saveProviderModelSelection(button.dataset.providerDisableAll, new Set())));
     $$('[data-probe-provider]').forEach((button) => button.addEventListener("click", () => batchProbeProvider(button.dataset.probeProvider)));
     $$('[data-refresh-provider]').forEach((button) => button.addEventListener("click", () => refreshProviderModels(button.dataset.refreshProvider)));
     $$('[data-remove-provider]').forEach((button) => button.addEventListener("click", async () => {
@@ -2387,6 +2418,30 @@
       renderSavedProviders(); mergeProviderModels(); await detectRuntime({ waitForModels: true });
       toast(t("settings.provider.removed"), t("settings.provider.removedHint"));
     }));
+  }
+
+  async function saveProviderModelSelection(providerId, enabledIds) {
+    const provider = savedProviders.find((item) => item.id === providerId);
+    if (!provider || providerOperations.has(providerId)) return;
+    const previous = new Set(provider.models.filter((model) => model.enabled !== false).map((model) => model.localId));
+    for (const model of provider.models) model.enabled = enabledIds.has(model.localId);
+    providerOperations.set(providerId, { type: "selection" });
+    renderSavedProviders();
+    mergeProviderModels();
+    const result = api
+      ? await api.setProviderModelsEnabled(providerId, [...enabledIds])
+      : { ok: true, providers: savedProviders };
+    providerOperations.delete(providerId);
+    if (!result.ok) {
+      for (const model of provider.models) model.enabled = previous.has(model.localId);
+      renderSavedProviders(); mergeProviderModels();
+      toast(t("settings.provider.selectionFailed"), result.error);
+      return;
+    }
+    savedProviders = result.providers;
+    renderSavedProviders(); mergeProviderModels();
+    await detectRuntime({ waitForModels: true });
+    toast(t("settings.provider.selectionSaved"), t("settings.provider.enabledForChat", { enabled: enabledIds.size, count: provider.models.length }));
   }
 
   async function batchProbeProvider(providerId) {
@@ -2517,7 +2572,7 @@
       baseUrl: providerDiscovery.baseUrl,
       apiKey: providerDiscovery.apiKey,
       protocol: providerDiscovery.protocol,
-      models: selected
+      models: providerDiscovery.models.map((model) => ({ ...model, enabled: providerDiscovery.selected.has(model.id) }))
     }) : { ok: true, providers: [] };
     if (!result.ok) { toast(t("settings.saveFailed"), result.error); return; }
     savedProviders = result.providers;

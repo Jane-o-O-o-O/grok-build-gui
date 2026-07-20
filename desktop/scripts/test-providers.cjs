@@ -76,6 +76,7 @@ async function withServer(handler, run) {
     models: [{ id: "deepseek-ai/DeepSeek-V4-Pro", name: "DeepSeek V4 Pro", localId: "desktop-providerfixture-deepseek-ai-deepseek-v4-pro" }]
   }]);
   assert.equal(migrated[0].models[0].localId, "deepseek-ai/DeepSeek-V4-Pro");
+  assert.equal(migrated[0].models[0].enabled, true);
 
   const collisions = normalizeProviderModelIds([
     { ...provider, id: "provider-aaaaaa1111", name: "SiliconFlow", baseUrl: "https://api.siliconflow.cn/v1", models: [{ id: "shared-model", localId: "legacy-a" }] },
@@ -103,7 +104,16 @@ async function withServer(handler, run) {
   assert.equal(refreshed[0].name, "Existing Model");
   assert.equal(refreshed[0].toolCapability, "native");
   assert.equal(refreshed[0].apiBackend, "responses");
+  assert.equal(refreshed[0].enabled, true);
   assert.equal(refreshed[1].toolCapability, "unknown");
+  assert.equal(refreshed[1].enabled, false);
+
+  const disabledConfig = renderManagedConfig([{ ...provider, models: [
+    { ...provider.models[0], enabled: true },
+    { id: "disabled-model", name: "Disabled Model", localId: "disabled-model", enabled: false }
+  ] }]);
+  assert.match(disabledConfig, /claude-fixture/);
+  assert.doesNotMatch(disabledConfig, /disabled-model/);
 
   assert.equal(classifyModelCapability("BAAI/bge-m3").toolCapability, "unsupported");
   assert.equal(classifyModelCapability("Qwen/Qwen-Image").toolCapability, "unsupported");
