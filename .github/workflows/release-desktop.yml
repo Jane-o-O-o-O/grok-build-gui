@@ -1,0 +1,142 @@
+name: Release desktop
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm run verify
+      - run: npm run test:providers
+      - run: npm run test:bridge
+      - run: npm run test:config
+      - run: npm run test:account
+      - run: npm run test:git
+      - run: npm run test:cli
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - name: Build Windows installer
+        run: npx electron-builder --win nsis --x64
+      - name: Build portable ZIP
+        shell: pwsh
+        run: |
+          npx electron-builder --dir --win --x64
+          $version = node -p "require('./package.json').version"
+          Compress-Archive -Path "dist/win-unpacked/*" -DestinationPath "dist/Grok-Build-Desktop-$version-Windows-x64-Portable.zip" -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          if-no-files-found: error
+          path: |
+            desktop/dist/*-Setup.exe
+            desktop/dist/*-Portable.zip
+
+  macos:
+    needs: test
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: desktop
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - name: Build unsigned macOS DMGs
+        run: npx electron-builder --mac dmg --x64 --arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-release
+          if-no-files-found: error
+          path: desktop/dist/*.dmg
+
+  linux:
+    needs: test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - name: Build Linux packages
+        run: npx electron-builder --linux AppImage deb --x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-release
+          if-no-files-found: error
+          path: |
+            desktop/dist/*.AppImage
+            desktop/dist/*.deb
+
+  publish-draft:
+    needs: [windows, macos, linux]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Generate checksums
+        run: |
+          cd release-assets
+          find . -maxdepth 1 -type f -printf '%f\0' | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+      - name: Create draft release and upload assets
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          NOTES=".github/release-notes/${TAG}.md"
+          if [[ ! -f "${NOTES}" ]]; then
+            printf '# %s\n\nDesktop release artifacts for %s.\n' "${TAG}" "${TAG}" > release-notes.md
+            NOTES="release-notes.md"
+          fi
+          if ! gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release create "${TAG}" \
+              --verify-tag \
+              --draft \
+              --title "Grok Build GUI ${TAG} — First Public Preview" \
+              --notes-file "${NOTES}"
+          fi
+          gh release upload "${TAG}" release-assets/* --clobber

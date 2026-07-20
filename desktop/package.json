@@ -42,17 +42,25 @@
     "win": {
       "icon": "build/icon.png",
       "target": ["nsis", "portable"],
-      "artifactName": "Grok-Build-Desktop-${version}-${arch}.${ext}"
+      "artifactName": "Grok-Build-Desktop-${version}-Windows-${arch}.${ext}"
+    },
+    "nsis": {
+      "artifactName": "Grok-Build-Desktop-${version}-Windows-${arch}-Setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "Grok-Build-Desktop-${version}-Windows-${arch}-Portable.${ext}"
     },
     "mac": {
       "icon": "build/icon.png",
       "target": "dmg",
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "artifactName": "Grok-Build-Desktop-${version}-macOS-${arch}.${ext}"
     },
     "linux": {
       "icon": "build/icon.png",
       "target": ["AppImage", "deb"],
-      "category": "Development"
+      "category": "Development",
+      "artifactName": "Grok-Build-Desktop-${version}-Linux-${arch}.${ext}"
     }
   }
 }
