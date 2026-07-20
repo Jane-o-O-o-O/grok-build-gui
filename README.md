@@ -113,12 +113,28 @@
 
 <table>
   <tr>
-    <td width="50%"><strong>原生设置中心</strong><br><br><img src="desktop/docs/settings-center.png" alt="Grok native settings center" /></td>
-    <td width="50%"><strong>模型选择器</strong><br><br><img src="desktop/docs/model-picker.png" alt="Grok runtime model picker" /></td>
+    <td width="50%"><strong>原生工具执行与并行侧边任务</strong><br><br><img src="desktop/docs/tool-execution.png" alt="Native tool execution and parallel side task" /></td>
+    <td width="50%"><strong>65 项 Slash 命令选择器</strong><br><br><img src="desktop/docs/slash-commands.png" alt="Slash command picker" /></td>
   </tr>
   <tr>
-    <td width="50%"><strong>账号与 Runtime</strong><br><br><img src="desktop/docs/account-runtime-menu.png" alt="Grok account and runtime status" /></td>
-    <td width="50%"><strong>原生工具与并行侧边任务</strong><br><br><img src="desktop/screenshots/tool-execution-live.png" alt="Native tool execution and side task" /></td>
+    <td width="50%"><strong>第三方模型与工具能力</strong><br><br><img src="desktop/docs/provider-models.png" alt="Third-party model providers and tool capability" /></td>
+    <td width="50%"><strong>原生模型选择器</strong><br><br><img src="desktop/docs/model-picker.png" alt="Grok runtime model picker" /></td>
+  </tr>
+  <tr>
+    <td width="50%"><strong>多标签持久终端</strong><br><br><img src="desktop/docs/right-workbench.png" alt="Persistent terminal workbench" /></td>
+    <td width="50%"><strong>文件树与只读预览</strong><br><br><img src="desktop/docs/file-explorer.png" alt="Workspace file explorer" /></td>
+  </tr>
+  <tr>
+    <td width="50%"><strong>内嵌浏览器与本地服务</strong><br><br><img src="desktop/docs/browser-workbench.png" alt="Embedded browser workbench" /></td>
+    <td width="50%"><strong>Git 分支与工作区状态</strong><br><br><img src="desktop/docs/git-workspace.png" alt="Git branch and workspace status" /></td>
+  </tr>
+  <tr>
+    <td width="50%"><strong>59 项原生设置中心</strong><br><br><img src="desktop/docs/settings-center.png" alt="Grok native settings center" /></td>
+    <td width="50%"><strong>中文 / English 即时切换</strong><br><br><img src="desktop/docs/english-interface.png" alt="English desktop interface" /></td>
+  </tr>
+  <tr>
+    <td width="50%"><strong>账号与 Runtime 状态</strong><br><br><img src="desktop/docs/account-runtime-menu.png" alt="Grok account and runtime status" /></td>
+    <td width="50%"><strong>工作台功能选择器</strong><br><br><img src="desktop/docs/workbench-picker.png" alt="Workbench feature picker" /></td>
   </tr>
 </table>
 
