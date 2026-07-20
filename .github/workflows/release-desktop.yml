@@ -122,7 +122,7 @@ jobs:
       - name: Generate checksums
         run: |
           cd release-assets
-          find . -maxdepth 1 -type f -printf '%f\0' | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -printf '%f\0' | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
       - name: Create draft release and upload assets
         shell: bash
         run: |
