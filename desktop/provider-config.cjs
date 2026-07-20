@@ -240,6 +240,27 @@ function makeLocalModelId(_providerId, remoteId) {
   return String(remoteId || "").trim();
 }
 
+function isLegacyDesktopModelId(value) {
+  return /^desktop-provider[a-z0-9_-]*-/i.test(String(value || "").trim());
+}
+
+function stripLegacyDesktopModelSections(input) {
+  const lines = String(input || "").replace(/\r\n/g, "\n").split("\n");
+  const output = [];
+  let skippingLegacyModel = false;
+  for (const line of lines) {
+    const table = line.match(/^\s*\[model\.(?:"([^"]+)"|'([^']+)'|([^\]\s]+))\]\s*(?:#.*)?$/);
+    if (table) {
+      skippingLegacyModel = isLegacyDesktopModelId(table[1] || table[2] || table[3]);
+      if (skippingLegacyModel) continue;
+    } else if (/^\s*\[[^\]]+\]\s*(?:#.*)?$/.test(line)) {
+      skippingLegacyModel = false;
+    }
+    if (!skippingLegacyModel) output.push(line);
+  }
+  return output.join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
 function providerAliasSuffix(provider) {
   let host = "";
   try { host = new URL(provider.baseUrl).hostname.replace(/^api\./i, "").split(".")[0]; } catch {}
@@ -341,7 +362,7 @@ function mergeManagedConfig(existing, providers) {
   const escapedStart = BLOCK_START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const escapedEnd = BLOCK_END.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pattern = new RegExp(`\\n?${escapedStart}[\\s\\S]*?${escapedEnd}\\n?`, "g");
-  const clean = String(existing || "").replace(pattern, "\n").trimEnd();
+  const clean = stripLegacyDesktopModelSections(String(existing || "").replace(pattern, "\n")).trimEnd();
   const generated = renderManagedConfig(providers);
   return `${clean}${clean ? "\n\n" : ""}${generated}\n`;
 }
@@ -357,10 +378,12 @@ module.exports = {
   makeProviderId,
   makeEnvKey,
   makeLocalModelId,
+  isLegacyDesktopModelId,
   mergeDiscoveredProviderModels,
   mergeManagedConfig,
   normalizeProviderModelIds,
   parseModels,
   probeModelTools,
-  renderManagedConfig
+  renderManagedConfig,
+  stripLegacyDesktopModelSections
 };

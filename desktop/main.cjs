@@ -9,6 +9,7 @@ const {
   discoverModels,
   makeProviderId,
   makeEnvKey,
+  isLegacyDesktopModelId,
   mergeDiscoveredProviderModels,
   mergeManagedConfig,
   normalizeProviderModelIds,
@@ -351,7 +352,9 @@ function parseModelList(output) {
   const text = String(output || "");
   return {
     defaultModel: text.match(/Default model:\s*([^\s]+)/i)?.[1] || null,
-    models: [...new Set([...text.matchAll(/^\s*(?:\*|-)\s+([^\s(]+)/gm)].map((match) => match[1]))]
+    models: [...new Set([...text.matchAll(/^\s*(?:\*|-)\s+([^\s(]+)/gm)]
+      .map((match) => match[1])
+      .filter((id) => !isLegacyDesktopModelId(id)))]
   };
 }
 

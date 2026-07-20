@@ -5,11 +5,13 @@ const {
   discoverModels,
   makeEnvKey,
   makeLocalModelId,
+  isLegacyDesktopModelId,
   mergeDiscoveredProviderModels,
   mergeManagedConfig,
   normalizeProviderModelIds,
   probeModelTools,
-  renderManagedConfig
+  renderManagedConfig,
+  stripLegacyDesktopModelSections
 } = require("../provider-config.cjs");
 
 async function withServer(handler, run) {
@@ -67,6 +69,8 @@ async function withServer(handler, run) {
   assert.equal((mergeManagedConfig(merged, [provider]).match(/grok-desktop custom models >>>/g) || []).length, 1);
 
   assert.equal(makeLocalModelId("provider-fixture", "deepseek-ai/DeepSeek-V4-Pro"), "deepseek-ai/DeepSeek-V4-Pro");
+  assert.equal(isLegacyDesktopModelId("desktop-providerdcfb966d81-deepseek-ai-deepseek-v4-pro"), true);
+  assert.equal(isLegacyDesktopModelId("deepseek-ai/DeepSeek-V4-Pro"), false);
   const migrated = normalizeProviderModelIds([{
     ...provider,
     models: [{ id: "deepseek-ai/DeepSeek-V4-Pro", name: "DeepSeek V4 Pro", localId: "desktop-providerfixture-deepseek-ai-deepseek-v4-pro" }]
@@ -80,6 +84,17 @@ async function withServer(handler, run) {
   assert.match(collisions[0].models[0].localId, /^shared-model@siliconflow-[a-z0-9]{6}$/);
   assert.match(collisions[1].models[0].localId, /^shared-model@openrouter-[a-z0-9]{6}$/);
   assert.notEqual(collisions[0].models[0].localId, collisions[1].models[0].localId);
+
+  const legacyConfig = `[ui]\ntheme = "dark"\n\n[model.desktop-providerdcfb966d81-old-model]\nmodel = "old/model"\nbase_url = "https://old.invalid/v1"\n\n[model."keep/model"]\nmodel = "keep/model"\nbase_url = "https://keep.invalid/v1"\n`;
+  const stripped = stripLegacyDesktopModelSections(legacyConfig);
+  assert.doesNotMatch(stripped, /desktop-providerdcfb966d81-old-model/);
+  assert.doesNotMatch(stripped, /old\.invalid/);
+  assert.match(stripped, /\[ui\]/);
+  assert.match(stripped, /\[model\."keep\/model"\]/);
+  assert.match(stripped, /keep\.invalid/);
+  const migratedConfig = mergeManagedConfig(legacyConfig, [provider]);
+  assert.doesNotMatch(migratedConfig, /desktop-providerdcfb966d81-old-model/);
+  assert.equal((migratedConfig.match(/claude-fixture/g) || []).length > 0, true);
 
   const refreshed = mergeDiscoveredProviderModels([
     { id: "existing-model", name: "Existing Model", toolCapability: "unknown" },
