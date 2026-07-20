@@ -281,7 +281,9 @@ grok --cwd WORKSPACE -p PROMPT --output-format streaming-json
 
 ### 附件
 
-Composer 可以选择本地文件。发送时桌面端把附件的本地路径附加到 Prompt，Runtime 再按自身工具与权限读取文件；文件内容不会预先复制进 Renderer 状态。
+Composer 提供三种附件入口：点击回形针选择本地文件、把桌面文件直接拖进对话区域，或在输入框使用系统粘贴快捷键直接粘贴图片。拖入文件会保留原生绝对路径；粘贴的 PNG、JPEG、WebP、GIF、BMP 图片经过格式校验后写入应用临时附件目录，再自动加入附件列表。重复路径会被忽略，单次对话最多添加 32 个附件，拖入时界面会显示明确的放置区域。
+
+发送时桌面端把附件路径附加到 Prompt，Runtime 再按自身工具与权限读取文件；文件内容不会预先复制进 Renderer 的消息历史。
 
 ---
 
@@ -654,6 +656,7 @@ v0.1.0 新增中文 / English UI：
 | 第三方 API Key | `safeStorage` 可用时加密保存，不进入 TOML/Renderer |
 | 桌面任务历史与布局 | Renderer Local Storage |
 | 附件 | 发送时只附加本地路径，不长期保存附件列表 |
+| 粘贴图片 | 校验格式后写入操作系统临时目录，单张最大 25 MB |
 
 ---
 

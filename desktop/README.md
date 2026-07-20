@@ -55,4 +55,4 @@ npm run pack
 - 工程工作区、Git 分支、runtime 在线状态和工具许可作为一级信息；
 - Chromium renderer 保持 `contextIsolation`、sandbox 和无 Node 注入。
 
-会话历史保存在本地 renderer storage；附件仅在当前编辑状态保留，提交时以本地路径附加到 prompt。权限选择会直接映射到 CLI：智能审批使用 `--permission-mode auto`，严格拒绝使用 `--permission-mode dontAsk`，完全访问使用 `--always-approve`。
+会话历史保存在本地 renderer storage；附件可通过文件选择器、桌面拖放或输入框粘贴图片加入，仅在当前编辑状态保留，提交时以本地路径附加到 prompt。权限选择会直接映射到 CLI：智能审批使用 `--permission-mode auto`，严格拒绝使用 `--permission-mode dontAsk`，完全访问使用 `--always-approve`。

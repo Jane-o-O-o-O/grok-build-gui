@@ -19,6 +19,7 @@
     "test:account": "node scripts/test-account-info.cjs",
     "test:git": "node scripts/test-git-workspace.cjs",
     "test:cli": "node scripts/test-cli-runtime.cjs",
+    "test:attachments": "node scripts/test-attachments.cjs",
     "preview": "node scripts/serve.cjs",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"
@@ -35,6 +36,7 @@
       "main.cjs",
       "preload.cjs",
       "cli-runtime.cjs",
+      "attachment-store.cjs",
       "provider-bridge.cjs",
       "provider-config.cjs",
       "native-config.cjs",

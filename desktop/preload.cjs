@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 const listeners = new Map();
 
@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld("grokDesktop", {
   removeProvider: (providerId) => ipcRenderer.invoke("providers:remove", providerId),
   pickWorkspace: () => ipcRenderer.invoke("dialog:workspace"),
   pickFiles: () => ipcRenderer.invoke("dialog:files"),
+  pathForFile: (file) => webUtils.getPathForFile(file),
+  saveClipboardImage: (payload) => ipcRenderer.invoke("attachments:save-clipboard-image", payload),
+  validateAttachmentPaths: (paths) => ipcRenderer.invoke("attachments:validate-paths", paths),
   revealPath: (path) => ipcRenderer.invoke("shell:reveal", path),
   openPath: (path) => ipcRenderer.invoke("shell:open-path", path),
   openExternal: (url) => ipcRenderer.invoke("shell:external", url),

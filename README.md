@@ -281,7 +281,9 @@ The desktop app assigns a Session ID on the first turn and continues subsequent 
 
 ### Attachments
 
-The Composer can select local files. At send time, the app appends their local paths to the Prompt. The runtime then reads those files through its own tools and permission policies; the Renderer does not preload the file contents into message state.
+The Composer accepts attachments in three ways: choose files with the paperclip button, drag files from the desktop into the conversation, or paste an image directly into the prompt with the system paste shortcut. Dragged files retain their native absolute paths; pasted PNG, JPEG, WebP, GIF, and BMP images are validated and written to the app's temporary attachment directory before being added. Duplicate paths are ignored, the list is capped at 32 attachments, and a drag overlay confirms the drop target.
+
+At send time, the app appends attachment paths to the Prompt. The runtime then reads those files through its own tools and permission policies; the Renderer does not preload file contents into message history.
 
 ---
 
@@ -654,6 +656,7 @@ See [`desktop/docs/DESIGN_ADAPTATION.md`](desktop/docs/DESIGN_ADAPTATION.md) for
 | Third-party API Keys | Encrypted with `safeStorage` when available; absent from TOML and Renderer |
 | Desktop task history and layout | Renderer Local Storage |
 | Attachments | Local path added at send time; attachment list not persisted as history |
+| Pasted images | Format-validated image in the operating-system temporary directory; maximum 25 MB per image |
 
 ---
 

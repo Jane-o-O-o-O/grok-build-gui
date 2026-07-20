@@ -98,6 +98,7 @@
       <main class="workspace">
         <div class="pane-resizer pane-resizer--sidebar" id="sidebarResizer" role="separator" aria-orientation="vertical" aria-label="调整侧栏宽度"></div>
         <div class="pane-resizer pane-resizer--inspector" id="inspectorResizer" role="separator" aria-orientation="vertical" aria-label="调整工作台宽度"></div>
+        <div class="file-drop-overlay" id="fileDropOverlay" hidden><svg><use href="#i-paperclip"/></svg><b data-i18n="composer.dropFiles">拖放文件以添加到对话</b><small data-i18n="composer.dropFilesHint">松开鼠标后文件会显示在输入框上方</small></div>
         <div class="workspace-toolbar">
           <div class="toolbar-group toolbar-group--branch">
             <button class="icon-button sidebar-toggle" id="sidebarToggle" title="侧栏"><svg><use href="#i-panel"/></svg></button>
@@ -265,7 +266,7 @@
             </section>
           </main>
         </div>
-        <footer class="settings-window__footer"><span></span><button class="primary-button" data-close-modal data-i18n="settings.done">Done</button></footer>
+        <footer class="settings-window__footer"><span id="settingsPendingStatus"></span><button class="primary-button" id="settingsDoneButton" data-i18n="settings.done">Done</button></footer>
       </section>
     </div>
 

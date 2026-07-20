@@ -3,6 +3,7 @@ const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { saveClipboardImage } = require("./attachment-store.cjs");
 const { buildCliArgs, effectivePrompt } = require("./cli-runtime.cjs");
 const { createProviderBridge } = require("./provider-bridge.cjs");
 const {
@@ -773,6 +774,26 @@ ipcMain.handle("dialog:workspace", async () => {
 ipcMain.handle("dialog:files", async () => {
   const result = await dialog.showOpenDialog(mainWindow, { properties: ["openFile", "multiSelections"] });
   return result.canceled ? [] : result.filePaths;
+});
+
+ipcMain.handle("attachments:save-clipboard-image", async (_event, payload) => {
+  try {
+    const directory = path.join(app.getPath("temp"), "grok-build-gui", "clipboard-images");
+    return { ok: true, path: saveClipboardImage(payload, directory) };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle("attachments:validate-paths", (_event, values) => {
+  const files = [];
+  for (const value of (Array.isArray(values) ? values : []).slice(0, 64)) {
+    try {
+      const target = path.resolve(String(value || ""));
+      if (fs.statSync(target).isFile()) files.push(target);
+    } catch {}
+  }
+  return files;
 });
 
 ipcMain.handle("shell:reveal", async (_event, target) => {

@@ -7,6 +7,7 @@
   const platform = api?.platform || "web";
   document.documentElement.classList.add(`platform-${platform}`);
   const STORAGE_KEY = "grok-desktop-state-v1";
+  const MAX_ATTACHMENTS = 32;
   const t = (key, vars) => window.GrokI18n?.t(key, vars) ?? key;
   const PERMISSION_MODES = {
     auto: { labelKey: "perm.auto", nativeValue: "auto" },
@@ -56,6 +57,9 @@
   let savedProviders = [];
   const providerOperations = new Map();
   const expandedProviderIds = new Set();
+  const providerModelDrafts = new Map();
+  let applyingSettings = false;
+  let fileDragDepth = 0;
   let nativeConfig = { values: {}, raw: "", path: "~/.grok/config.toml", integrations: {} };
   let authState = { signedIn: false, name: "登录 Grok" };
   let authPollTimer = null;
@@ -639,6 +643,7 @@
     const followOutput = conversation.scrollHeight - conversation.scrollTop - conversation.clientHeight < 140;
     streamRenderFrame = requestAnimationFrame(() => {
       streamRenderFrame = null;
+      if (!$("#settingsBackdrop")?.hidden) return;
       if (!activeAssistantMessage) return;
       let article = $(`[data-message-id="${activeAssistantMessage.id}"]`);
       if (!article) { renderMessages(); article = $(`[data-message-id="${activeAssistantMessage.id}"]`); }
@@ -733,6 +738,7 @@
     if (toolRenderFrame) return;
     toolRenderFrame = requestAnimationFrame(() => {
       toolRenderFrame = null;
+      if (!$("#settingsBackdrop")?.hidden) return;
       const conversation = $("#conversation");
       const followOutput = conversation.scrollHeight - conversation.scrollTop - conversation.clientHeight < 140;
       const thread = activeThread();
@@ -802,7 +808,7 @@
   function startWorkspaceWatch() {
     stopWorkspaceWatch();
     workspaceWatchTimer = setInterval(() => {
-      if (document.hidden) return;
+      if (document.hidden || !$("#settingsBackdrop")?.hidden) return;
       void refreshGitInfo({ quiet: true });
       if (state.inspectorOpen && activeDockType() === "files") void softRefreshWorkspaceFiles();
     }, 2500);
@@ -999,7 +1005,7 @@
   }
 
   function renderAttachments() {
-    $("#attachmentList").innerHTML = state.attachments.map((file, index) => `<div class="attachment-chip"><svg><use href="#i-paperclip"/></svg><span>${escapeHtml(basename(file))}</span><button data-remove-attachment="${index}"><svg><use href="#i-x"/></svg></button></div>`).join("");
+    $("#attachmentList").innerHTML = state.attachments.map((file, index) => `<div class="attachment-chip" data-attachment-path="${escapeHtml(file)}" title="${escapeHtml(file)}"><svg><use href="#i-paperclip"/></svg><span>${escapeHtml(basename(file))}</span><button data-remove-attachment="${index}"><svg><use href="#i-x"/></svg></button></div>`).join("");
     $$('[data-remove-attachment]').forEach((button) => button.addEventListener("click", () => { state.attachments.splice(Number(button.dataset.removeAttachment), 1); renderAttachments(); }));
     renderContextFiles();
   }
@@ -1237,6 +1243,7 @@
     if (sideStreamFrames.has(tab.id)) return;
     sideStreamFrames.set(tab.id, requestAnimationFrame(() => {
       sideStreamFrames.delete(tab.id);
+      if (!$("#settingsBackdrop")?.hidden) return;
       const pane = [...$$('[data-dock-id]')].find((item) => item.dataset.dockId === tab.id);
       const target = pane && $("[data-side-messages]", pane);
       const assistant = tab.messages?.find((message) => message.id === tab.activeAssistantId);
@@ -1717,7 +1724,7 @@
     if (running) {
       startedAt = Date.now();
       clearInterval(durationTimer);
-      durationTimer = setInterval(() => { const label = $("#turnDuration"); if (label) label.textContent = `${((Date.now() - startedAt) / 1000).toFixed(1)} S`; }, 100);
+      durationTimer = setInterval(() => { const label = $("#turnDuration"); if (label && $("#settingsBackdrop")?.hidden) label.textContent = `${((Date.now() - startedAt) / 1000).toFixed(1)} S`; }, 100);
     } else clearInterval(durationTimer);
   }
 
@@ -1908,9 +1915,116 @@
   }
 
   async function chooseFiles() {
-    if (!api) { state.attachments = ["src/main.rs", "Cargo.toml"]; renderAttachments(); return; }
+    if (!api) { addAttachmentPaths(["src/main.rs", "Cargo.toml"]); return; }
     const files = await api.pickFiles();
-    state.attachments.push(...files.filter((file) => !state.attachments.includes(file))); renderAttachments();
+    addAttachmentPaths(files);
+  }
+
+  function attachmentKey(value) {
+    const normalized = String(value || "").trim().replace(/\\/g, "/");
+    return platform === "win32" ? normalized.toLowerCase() : normalized;
+  }
+
+  function addAttachmentPaths(values, { announce = true } = {}) {
+    const existing = new Set(state.attachments.map(attachmentKey));
+    const added = [];
+    for (const value of values || []) {
+      const file = String(value || "").trim();
+      const key = attachmentKey(file);
+      if (!file || !key || existing.has(key)) continue;
+      if (state.attachments.length >= MAX_ATTACHMENTS) break;
+      existing.add(key);
+      state.attachments.push(file);
+      added.push(file);
+    }
+    if (added.length) {
+      renderAttachments();
+      if (announce) toast(t("attachment.added"), t("attachment.addedHint", { count: added.length }));
+    } else if (announce && values?.length) {
+      toast(t("attachment.failed"), state.attachments.length >= MAX_ATTACHMENTS ? t("attachment.limit", { count: MAX_ATTACHMENTS }) : t("attachment.duplicate"));
+    }
+    return added;
+  }
+
+  function nativeFilePath(file) {
+    try { return api?.pathForFile?.(file) || ""; } catch { return ""; }
+  }
+
+  async function handlePromptPaste(event) {
+    const imageItems = Array.from(event.clipboardData?.items || []).filter((item) => item.kind === "file" && /^image\//i.test(item.type));
+    if (!imageItems.length || !api?.saveClipboardImage) return;
+    if (!event.clipboardData.getData("text/plain")) event.preventDefault();
+    if (state.attachments.length >= MAX_ATTACHMENTS) { toast(t("attachment.failed"), t("attachment.limit", { count: MAX_ATTACHMENTS })); return; }
+    const added = [];
+    for (const item of imageItems) {
+      const file = item.getAsFile();
+      if (!file) continue;
+      if (file.size > 25 * 1024 * 1024) { toast(t("attachment.failed"), t("attachment.imageTooLarge")); continue; }
+      const existingPath = nativeFilePath(file);
+      if (existingPath) { added.push(...addAttachmentPaths([existingPath], { announce: false })); continue; }
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const result = await api.saveClipboardImage({ mimeType: file.type, bytes });
+        if (!result.ok) { toast(t("attachment.failed"), result.error); continue; }
+        added.push(...addAttachmentPaths([result.path], { announce: false }));
+      } catch (error) {
+        toast(t("attachment.failed"), error.message);
+      }
+    }
+    if (added.length) toast(t("attachment.pasted"), t("attachment.pastedHint"));
+  }
+
+  function hasDraggedFiles(event) {
+    return Array.from(event.dataTransfer?.types || []).includes("Files");
+  }
+
+  function showFileDropOverlay(show) {
+    document.documentElement.classList.toggle("is-file-dragging", show);
+    const overlay = $("#fileDropOverlay");
+    if (overlay) overlay.hidden = !show;
+  }
+
+  function resetFileDrag() {
+    fileDragDepth = 0;
+    showFileDropOverlay(false);
+  }
+
+  async function addDroppedFiles(fileList) {
+    let paths = [...(fileList || [])].map(nativeFilePath).filter(Boolean);
+    if (api?.validateAttachmentPaths && paths.length) paths = await api.validateAttachmentPaths(paths);
+    if (!paths.length) { toast(t("attachment.failed"), t("attachment.noFilePath")); return; }
+    const added = addAttachmentPaths(paths);
+    if (added.length) $("#promptInput").focus();
+  }
+
+  function bindAttachmentDropZone() {
+    window.addEventListener("dragenter", (event) => {
+      if (!hasDraggedFiles(event)) return;
+      event.preventDefault();
+      if (!$("#settingsBackdrop").hidden || !$("#integrationDetailBackdrop").hidden) return;
+      fileDragDepth += 1;
+      showFileDropOverlay(true);
+    });
+    window.addEventListener("dragover", (event) => {
+      if (!hasDraggedFiles(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+    });
+    window.addEventListener("dragleave", (event) => {
+      if (!fileDragDepth) return;
+      event.preventDefault();
+      fileDragDepth = Math.max(0, fileDragDepth - 1);
+      if (!fileDragDepth) showFileDropOverlay(false);
+    });
+    window.addEventListener("drop", (event) => {
+      if (!hasDraggedFiles(event)) return;
+      event.preventDefault();
+      const files = event.dataTransfer.files;
+      resetFileDrag();
+      if (!$("#settingsBackdrop").hidden || !$("#integrationDetailBackdrop").hidden) return;
+      void addDroppedFiles(files);
+    });
+    window.addEventListener("blur", resetFileDrag);
   }
 
   function openPalette() {
@@ -2295,16 +2409,91 @@
 
   async function openSettings(page = "general") {
     $("#accountPopover").hidden = true;
+    document.documentElement.classList.add("settings-open");
     $("#settingsBackdrop").hidden = false;
     $("#settingsSearch").value = "";
     showSettingsPage(page);
     await Promise.all([loadSavedProviders(), loadNativeConfig(), refreshAuthInfo()]);
+    resetProviderModelDrafts();
+    renderSavedProviders();
   }
   function closeSettings() {
+    if (applyingSettings) return;
+    providerModelDrafts.clear();
+    updateSettingsPendingStatus();
     $("#settingsBackdrop").hidden = true;
+    document.documentElement.classList.remove("settings-open");
     $("#settingsSearch").value = "";
     clearSettingsSearchUI();
     closeIntegrationDetail();
+    if (activeRun) {
+      renderMessages();
+      refreshActiveDockPane();
+    }
+  }
+
+  function resetProviderModelDrafts() {
+    providerModelDrafts.clear();
+    for (const provider of savedProviders) {
+      providerModelDrafts.set(provider.id, new Set((provider.models || []).filter((model) => model.enabled !== false).map((model) => model.localId)));
+    }
+    updateSettingsPendingStatus();
+  }
+
+  function providerDraftIds(provider) {
+    return providerModelDrafts.get(provider.id) || new Set((provider.models || []).filter((model) => model.enabled !== false).map((model) => model.localId));
+  }
+
+  function changedProviderDrafts() {
+    return savedProviders.filter((provider) => {
+      const persisted = new Set((provider.models || []).filter((model) => model.enabled !== false).map((model) => model.localId));
+      const draft = providerDraftIds(provider);
+      return persisted.size !== draft.size || [...persisted].some((id) => !draft.has(id));
+    });
+  }
+
+  function updateSettingsPendingStatus() {
+    const status = $("#settingsPendingStatus");
+    const done = $("#settingsDoneButton");
+    if (!status || !done) return;
+    const count = changedProviderDrafts().length;
+    status.textContent = applyingSettings
+      ? t("settings.provider.selectionSaving")
+      : count ? t("settings.provider.pendingChanges", { count }) : "";
+    done.disabled = applyingSettings;
+  }
+
+  async function applySettingsChanges() {
+    if (applyingSettings) return;
+    const changed = changedProviderDrafts();
+    if (!changed.length) { closeSettings(); return; }
+    applyingSettings = true;
+    updateSettingsPendingStatus();
+    for (const provider of changed) {
+      const enabledIds = [...providerDraftIds(provider)];
+      let result;
+      try {
+        result = api
+          ? await api.setProviderModelsEnabled(provider.id, enabledIds)
+          : { ok: true, providers: savedProviders.map((item) => item.id === provider.id ? { ...item, models: item.models.map((model) => ({ ...model, enabled: enabledIds.includes(model.localId) })) } : item) };
+      } catch (error) {
+        result = { ok: false, error: error.message };
+      }
+      if (!result.ok) {
+        applyingSettings = false;
+        updateSettingsPendingStatus();
+        toast(t("settings.provider.selectionFailed"), result.error);
+        return;
+      }
+      savedProviders = result.providers;
+    }
+    resetProviderModelDrafts();
+    renderSavedProviders(); mergeProviderModels();
+    await detectRuntime({ waitForModels: true });
+    applyingSettings = false;
+    updateSettingsPendingStatus();
+    toast(t("settings.provider.selectionSaved"), t("settings.provider.selectionSavedHint"));
+    closeSettings();
   }
 
   function providerModelOptions() {
@@ -2369,29 +2558,55 @@
     renderSavedProviders(); mergeProviderModels();
   }
 
+  function providerDetail(provider, operation, enabledCount) {
+    if (operation?.type === "probe") return t("settings.provider.probing", { completed: operation.completed || 0, total: operation.total || provider.models.length });
+    if (operation?.type === "refresh") return t("settings.provider.refreshing");
+    return t("settings.provider.modelCount", { enabled: enabledCount, count: provider.models.length, summary: providerCapabilitySummary(provider) });
+  }
+
+  function providerInfoLine(provider, operation, enabledCount) {
+    return `${provider.baseUrl} · ${providerDetail(provider, operation, enabledCount)}${provider.keyProtected ? ` · ${t("settings.provider.keyProtected")}` : ""}`;
+  }
+
+  function updateProviderDraftUI(providerId) {
+    const provider = savedProviders.find((item) => item.id === providerId);
+    const card = $$('[data-provider-card]').find((item) => item.dataset.providerCard === providerId);
+    if (!provider || !card) return;
+    const enabledCount = providerDraftIds(provider).size;
+    const operation = providerOperations.get(provider.id);
+    const locked = Boolean(operation) || applyingSettings;
+    const detail = $('[data-provider-detail]', card);
+    const status = $('[data-provider-enabled-status]', card);
+    const enableAll = $('[data-provider-enable-all]', card);
+    const disableAll = $('[data-provider-disable-all]', card);
+    if (detail) detail.textContent = providerInfoLine(provider, operation, enabledCount);
+    if (status) status.textContent = t("settings.provider.enabledForChat", { enabled: enabledCount, count: provider.models.length });
+    if (enableAll) enableAll.disabled = locked || enabledCount === provider.models.length;
+    if (disableAll) disableAll.disabled = locked || enabledCount === 0;
+    updateSettingsPendingStatus();
+  }
+
   function renderSavedProviders() {
     const target = $("#savedProviders");
     if (!savedProviders.length) {
       target.innerHTML = `<div class="context-empty"><span>${escapeHtml(t("settings.provider.empty"))}</span></div>`;
+      updateSettingsPendingStatus();
       return;
     }
     target.innerHTML = savedProviders.map((provider) => {
       const operation = providerOperations.get(provider.id);
+      const locked = Boolean(operation) || applyingSettings;
       const expanded = expandedProviderIds.has(provider.id);
-      const enabledCount = provider.models.filter((model) => model.enabled !== false).length;
-      const detail = operation?.type === "probe"
-        ? t("settings.provider.probing", { completed: operation.completed || 0, total: operation.total || provider.models.length })
-        : operation?.type === "refresh" ? t("settings.provider.refreshing")
-          : operation?.type === "selection" ? t("settings.provider.selectionSaving")
-            : t("settings.provider.modelCount", { enabled: enabledCount, count: provider.models.length, summary: providerCapabilitySummary(provider) });
+      const enabledIds = providerDraftIds(provider);
+      const enabledCount = enabledIds.size;
       const modelList = expanded ? `<div class="saved-provider__models">
-        <div class="saved-provider__model-toolbar"><span>${escapeHtml(t("settings.provider.enabledForChat", { enabled: enabledCount, count: provider.models.length }))}</span><span><button type="button" data-provider-enable-all="${escapeHtml(provider.id)}" ${operation || enabledCount === provider.models.length ? "disabled" : ""}>${escapeHtml(t("settings.provider.enableAll"))}</button><button type="button" data-provider-disable-all="${escapeHtml(provider.id)}" ${operation || enabledCount === 0 ? "disabled" : ""}>${escapeHtml(t("settings.provider.disableAll"))}</button></span></div>
+        <div class="saved-provider__model-toolbar"><span data-provider-enabled-status>${escapeHtml(t("settings.provider.enabledForChat", { enabled: enabledCount, count: provider.models.length }))}</span><span><button type="button" data-provider-enable-all="${escapeHtml(provider.id)}" ${locked || enabledCount === provider.models.length ? "disabled" : ""}>${escapeHtml(t("settings.provider.enableAll"))}</button><button type="button" data-provider-disable-all="${escapeHtml(provider.id)}" ${locked || enabledCount === 0 ? "disabled" : ""}>${escapeHtml(t("settings.provider.disableAll"))}</button></span></div>
         <div class="saved-provider__model-list">${provider.models.map((model) => {
           const capability = toolCapabilityMeta(model.toolCapability);
-          return `<label class="saved-provider-model"><input type="checkbox" data-provider-model-toggle="${escapeHtml(model.localId)}" data-provider-id="${escapeHtml(provider.id)}" ${model.enabled !== false ? "checked" : ""} ${operation ? "disabled" : ""}/><span><b>${escapeHtml(model.name || model.id)}</b><small>${escapeHtml(model.id)}</small></span><em class="discovered-model__capability ${capability.className}">${escapeHtml(capability.label)}</em></label>`;
+          return `<label class="saved-provider-model"><input type="checkbox" data-provider-model-toggle="${escapeHtml(model.localId)}" data-provider-id="${escapeHtml(provider.id)}" ${enabledIds.has(model.localId) ? "checked" : ""} ${locked ? "disabled" : ""}/><span><b>${escapeHtml(model.name || model.id)}</b><small>${escapeHtml(model.id)}</small></span><em class="discovered-model__capability ${capability.className}">${escapeHtml(capability.label)}</em></label>`;
         }).join("")}</div>
       </div>` : "";
-      return `<section class="saved-provider ${expanded ? "is-expanded" : ""}"><div class="saved-provider__header"><button type="button" class="saved-provider__summary" data-toggle-provider="${escapeHtml(provider.id)}" aria-expanded="${expanded}"><span class="saved-provider__protocol">${provider.protocol === "anthropic" ? "ANTH" : "OAI"}</span><span class="saved-provider__info"><b>${escapeHtml(provider.name)}</b><small>${escapeHtml(provider.baseUrl)} · ${escapeHtml(detail)}${provider.keyProtected ? ` · ${escapeHtml(t("settings.provider.keyProtected"))}` : ""}</small></span><svg class="saved-provider__chevron"><use href="#i-chevron"/></svg></button><span class="saved-provider__actions"><button class="icon-button ${operation?.type === "probe" ? "is-busy" : ""}" data-probe-provider="${escapeHtml(provider.id)}" title="${escapeHtml(t("settings.provider.probeAll"))}" ${operation ? "disabled" : ""}><svg><use href="#i-check"/></svg></button><button class="icon-button ${operation?.type === "refresh" ? "is-busy" : ""}" data-refresh-provider="${escapeHtml(provider.id)}" title="${escapeHtml(t("settings.provider.refreshList"))}" ${operation ? "disabled" : ""}><svg><use href="#i-refresh"/></svg></button><button class="icon-button" data-remove-provider="${escapeHtml(provider.id)}" title="${escapeHtml(t("settings.provider.remove"))}" ${operation ? "disabled" : ""}><svg><use href="#i-trash"/></svg></button></span></div>${modelList}</section>`;
+      return `<section class="saved-provider ${expanded ? "is-expanded" : ""}" data-provider-card="${escapeHtml(provider.id)}"><div class="saved-provider__header"><button type="button" class="saved-provider__summary" data-toggle-provider="${escapeHtml(provider.id)}" aria-expanded="${expanded}"><span class="saved-provider__protocol">${provider.protocol === "anthropic" ? "ANTH" : "OAI"}</span><span class="saved-provider__info"><b>${escapeHtml(provider.name)}</b><small data-provider-detail>${escapeHtml(providerInfoLine(provider, operation, enabledCount))}</small></span><svg class="saved-provider__chevron"><use href="#i-chevron"/></svg></button><span class="saved-provider__actions"><button class="icon-button ${operation?.type === "probe" ? "is-busy" : ""}" data-probe-provider="${escapeHtml(provider.id)}" title="${escapeHtml(t("settings.provider.probeAll"))}" ${locked ? "disabled" : ""}><svg><use href="#i-check"/></svg></button><button class="icon-button ${operation?.type === "refresh" ? "is-busy" : ""}" data-refresh-provider="${escapeHtml(provider.id)}" title="${escapeHtml(t("settings.provider.refreshList"))}" ${locked ? "disabled" : ""}><svg><use href="#i-refresh"/></svg></button><button class="icon-button" data-remove-provider="${escapeHtml(provider.id)}" title="${escapeHtml(t("settings.provider.remove"))}" ${locked ? "disabled" : ""}><svg><use href="#i-trash"/></svg></button></span></div>${modelList}</section>`;
     }).join("");
     $$('[data-toggle-provider]').forEach((button) => button.addEventListener("click", () => {
       const providerId = button.dataset.toggleProvider;
@@ -2400,15 +2615,22 @@
     }));
     $$('[data-provider-model-toggle]').forEach((input) => input.addEventListener("change", () => {
       const provider = savedProviders.find((item) => item.id === input.dataset.providerId);
-      const enabledIds = new Set((provider?.models || []).filter((model) => model.enabled !== false).map((model) => model.localId));
+      const enabledIds = new Set(provider ? providerDraftIds(provider) : []);
       input.checked ? enabledIds.add(input.dataset.providerModelToggle) : enabledIds.delete(input.dataset.providerModelToggle);
-      saveProviderModelSelection(input.dataset.providerId, enabledIds);
+      providerModelDrafts.set(input.dataset.providerId, enabledIds);
+      updateProviderDraftUI(input.dataset.providerId);
     }));
     $$('[data-provider-enable-all]').forEach((button) => button.addEventListener("click", () => {
       const provider = savedProviders.find((item) => item.id === button.dataset.providerEnableAll);
-      saveProviderModelSelection(provider.id, new Set(provider.models.map((model) => model.localId)));
+      providerModelDrafts.set(provider.id, new Set(provider.models.map((model) => model.localId)));
+      $$('[data-provider-model-toggle]', button.closest('[data-provider-card]')).forEach((input) => { input.checked = true; });
+      updateProviderDraftUI(provider.id);
     }));
-    $$('[data-provider-disable-all]').forEach((button) => button.addEventListener("click", () => saveProviderModelSelection(button.dataset.providerDisableAll, new Set())));
+    $$('[data-provider-disable-all]').forEach((button) => button.addEventListener("click", () => {
+      providerModelDrafts.set(button.dataset.providerDisableAll, new Set());
+      $$('[data-provider-model-toggle]', button.closest('[data-provider-card]')).forEach((input) => { input.checked = false; });
+      updateProviderDraftUI(button.dataset.providerDisableAll);
+    }));
     $$('[data-probe-provider]').forEach((button) => button.addEventListener("click", () => batchProbeProvider(button.dataset.probeProvider)));
     $$('[data-refresh-provider]').forEach((button) => button.addEventListener("click", () => refreshProviderModels(button.dataset.refreshProvider)));
     $$('[data-remove-provider]').forEach((button) => button.addEventListener("click", async () => {
@@ -2418,30 +2640,7 @@
       renderSavedProviders(); mergeProviderModels(); await detectRuntime({ waitForModels: true });
       toast(t("settings.provider.removed"), t("settings.provider.removedHint"));
     }));
-  }
-
-  async function saveProviderModelSelection(providerId, enabledIds) {
-    const provider = savedProviders.find((item) => item.id === providerId);
-    if (!provider || providerOperations.has(providerId)) return;
-    const previous = new Set(provider.models.filter((model) => model.enabled !== false).map((model) => model.localId));
-    for (const model of provider.models) model.enabled = enabledIds.has(model.localId);
-    providerOperations.set(providerId, { type: "selection" });
-    renderSavedProviders();
-    mergeProviderModels();
-    const result = api
-      ? await api.setProviderModelsEnabled(providerId, [...enabledIds])
-      : { ok: true, providers: savedProviders };
-    providerOperations.delete(providerId);
-    if (!result.ok) {
-      for (const model of provider.models) model.enabled = previous.has(model.localId);
-      renderSavedProviders(); mergeProviderModels();
-      toast(t("settings.provider.selectionFailed"), result.error);
-      return;
-    }
-    savedProviders = result.providers;
-    renderSavedProviders(); mergeProviderModels();
-    await detectRuntime({ waitForModels: true });
-    toast(t("settings.provider.selectionSaved"), t("settings.provider.enabledForChat", { enabled: enabledIds.size, count: provider.models.length }));
+    updateSettingsPendingStatus();
   }
 
   async function batchProbeProvider(providerId) {
@@ -2888,7 +3087,9 @@
       event.stopPropagation();
       openAgentModePicker(event.currentTarget);
     });
+    $("#promptInput").addEventListener("paste", handlePromptPaste);
     $("#settingsButton").addEventListener("click", () => openSettings("general")); $$('[data-close-modal]').forEach((button) => button.addEventListener("click", closeSettings));
+    $("#settingsDoneButton").addEventListener("click", applySettingsChanges);
     $("#settingsBackdrop").addEventListener("click", (event) => { if (event.target === $("#settingsBackdrop")) closeSettings(); });
     $("#paletteBackdrop").addEventListener("click", (event) => { if (event.target === $("#paletteBackdrop")) closePalette(); });
     $("#paletteInput").addEventListener("input", (event) => renderPalette(event.target.value));
@@ -2972,6 +3173,7 @@
       if (!event.target.closest("#branchPopover") && !event.target.closest("#branchButton")) { $("#branchPopover").hidden = true; $("#branchButton").setAttribute("aria-expanded", "false"); }
     });
     matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => { if (state.theme === "system") updateLayout(); });
+    bindAttachmentDropZone();
   }
 
   bindStaticActions();
