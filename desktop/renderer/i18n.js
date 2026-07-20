@@ -3,7 +3,8 @@
 
   const locales = {
     zh: {
-      "lang.name": "中文",
+      "lang.zh": "中文",
+      "lang.en": "English",
       "titlebar.windowActions": "窗口操作",
       "titlebar.theme": "切换主题",
       "titlebar.settings": "设置",
@@ -318,7 +319,8 @@
       "preview.mode": "预览模式"
     },
     en: {
-      "lang.name": "English",
+      "lang.zh": "中文",
+      "lang.en": "English",
       "titlebar.windowActions": "Window controls",
       "titlebar.theme": "Toggle theme",
       "titlebar.settings": "Settings",

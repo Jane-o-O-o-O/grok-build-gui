@@ -21,6 +21,7 @@ for (const file of ["main.cjs", "preload.cjs", "provider-config.cjs", "provider-
 
 const html = fs.readFileSync(path.join(root, "renderer/index.html"), "utf8");
 const js = fs.readFileSync(path.join(root, "renderer/app.js"), "utf8");
+const i18n = fs.readFileSync(path.join(root, "renderer/i18n.js"), "utf8");
 const css = fs.readFileSync(path.join(root, "renderer/app.css"), "utf8") + fs.readFileSync(path.join(root, "renderer/tokens.css"), "utf8");
 const backend = fs.readFileSync(path.join(root, "main.cjs"), "utf8") + fs.readFileSync(path.join(root, "preload.cjs"), "utf8") + fs.readFileSync(path.join(root, "cli-runtime.cjs"), "utf8");
 for (const ref of [...html.matchAll(/(?:href|src)="([^"]+\.(?:css|js|woff2))"/g)].map((match) => match[1])) {
@@ -43,6 +44,34 @@ for (const removed of ["AcpAgentRun", "agent stdio", "grok:permission-respond", 
 }
 for (const feature of ["t(definition.titleKey)", "t(item.titleKey)", "t(item.descKey)"]) {
   if (!js.includes(feature)) throw new Error(`Localized workbench label wiring missing: ${feature}`);
+}
+for (const feature of ['value="zh" data-i18n-option="lang.zh"', 'value="en" data-i18n-option="lang.en"']) {
+  if (!html.includes(feature)) throw new Error(`Locale option wiring missing: ${feature}`);
+}
+if ((i18n.match(/"lang\.zh": "中文"/g) || []).length !== 2 || (i18n.match(/"lang\.en": "English"/g) || []).length !== 2) {
+  throw new Error("Locale option labels must stay distinct in both interface languages");
+}
+if (html.includes('data-i18n-option="lang.name"') || i18n.includes('"lang.name"')) {
+  throw new Error("Ambiguous locale option label returned");
+}
+const i18nWindow = {};
+const i18nDocument = { documentElement: {}, querySelectorAll: () => [], querySelector: () => null };
+const i18nContext = vm.createContext({ window: i18nWindow, document: i18nDocument });
+new vm.Script(i18n, { filename: "renderer/i18n.js" }).runInContext(i18nContext);
+const localeOptions = [
+  { dataset: { i18nOption: "lang.zh" }, textContent: "" },
+  { dataset: { i18nOption: "lang.en" }, textContent: "" }
+];
+const localeRoot = {
+  querySelectorAll: () => [],
+  querySelector: (selector) => selector === "#localeSelect" ? { options: localeOptions } : null
+};
+for (const locale of ["zh", "en"]) {
+  i18nWindow.GrokI18n.setLocale(locale);
+  i18nWindow.GrokI18n.applyDom(localeRoot);
+  if (localeOptions.map((option) => option.textContent).join("|") !== "中文|English") {
+    throw new Error(`Locale options collapsed after switching to ${locale}`);
+  }
 }
 const iconGenerator = fs.readFileSync(path.join(root, "scripts/generate-icon.py"), "utf8");
 if (!iconGenerator.includes("logo07.txt") || !iconGenerator.includes("logo24.txt") || !iconGenerator.includes("BRAILLE_DOTS")) {
